@@ -142,11 +142,16 @@ class ReleasePlanTest(unittest.TestCase):
                 return {"object": {"type": "commit", "sha": sha}} if release and not release["draft"] else None
             return release if release and not release["draft"] else None
         def remote(*args):
+            if args[:3] == ("api", "--method", "POST"):
+                created = json.loads(Path(args[-1]).read_text(encoding="utf-8"))
+                state["release"] = {**created, "prerelease": False, "assets": [], "html_url": "https://example.test/release"}
+                return json.dumps(state["release"])
             if args[0] == "api":
+                # 作成済みでも一覧は反映待ちで空を返す状況を再現する。
+                if state["release"]:
+                    self.fail("新規作成直後のdraftを一覧で再検索しない")
                 return json.dumps([[state["release"]] if state["release"] else []])
-            if args[:2] == ("release", "create"):
-                state["release"] = {"tag_name": "v0.4.4", "target_commitish": sha, "body": Path(args[-1]).read_text(encoding="utf-8"), "draft": True, "prerelease": False, "assets": [], "html_url": "https://example.test/release"}
-            elif args[:2] == ("release", "upload"):
+            if args[:2] == ("release", "upload"):
                 file = Path(args[-1])
                 state["release"]["assets"].append({"name": file.name, "digest": "sha256:" + publish_release.sha256(file)})
             elif args[:2] == ("release", "edit"):

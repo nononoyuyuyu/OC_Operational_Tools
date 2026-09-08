@@ -87,8 +87,6 @@ def main():
     marker = f"<!-- oco-source: {sha} -->"
     notes = Path(f"Docs/OpenCampusOrganizer/releases/{version}.md").read_text(encoding="utf-8")
     notes += f"\n\n対象コミット: `{sha}`\n\n{marker}\n"
-    notes_file = Path(os.environ["RUNNER_TEMP"]) / "oco-release-notes.md"
-    notes_file.write_text(notes, encoding="utf-8")
     release = find_release(repository, tag)
     existing_ref = api_optional(f"repos/{repository}/git/ref/tags/{tag}")
     if existing_ref and (existing_ref["object"]["type"] != "commit" or existing_ref["object"]["sha"] != sha):
@@ -107,10 +105,12 @@ def main():
             return
     else:
         # --clobberは使わない。途中の失敗は同じコミット・同じ成果物のdraftだけ再開する。
-        gh("release", "create", tag, "--draft", "--target", sha, "--title", f"Open Campus Organizer {version}", "--notes-file", str(notes_file))
-        release = find_release(repository, tag)
-        if release is None:
-            raise ValueError("作成したdraftを取得できません。同じ実行の公開ジョブを再実行してください。")
+        # 作成直後は検索結果への反映が遅れるため、POSTの応答をそのまま使う。
+        payload = Path(os.environ["RUNNER_TEMP"]) / "oco-release-create.json"
+        payload.write_text(json.dumps({"tag_name": tag, "target_commitish": sha,
+                                      "name": f"Open Campus Organizer {version}",
+                                      "body": notes, "draft": True}, ensure_ascii=False), encoding="utf-8")
+        release = json.loads(gh("api", "--method", "POST", f"repos/{repository}/releases", "--input", str(payload)))
     existing = {asset["name"]: asset for asset in release["assets"]}
     if set(existing) - set(hashes):
         raise ValueError("draftに想定外の添付ファイルがあります。")
