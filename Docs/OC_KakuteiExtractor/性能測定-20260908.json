@@ -1,0 +1,123 @@
+{
+  "baseline": "c84a77f7e13b5431a2734ecef9a0b7edf1451a31",
+  "node": "v25.9.0",
+  "scope": "Node V8合成比較。GASサービスの所要時間ではない。",
+  "measurements": [
+    {
+      "mode": "baseline",
+      "students": 1000,
+      "dateColumns": 300,
+      "cells": 307307,
+      "startHeap": 7311112,
+      "maxRssBytes": 100311040,
+      "measured": [
+        {
+          "retain": false,
+          "elapsedMs": 205.68009999999998,
+          "validatedHeap": 20200280,
+          "fingerprintedHeap": 22684200,
+          "afterOutputHeap": 22686864
+        },
+        {
+          "retain": true,
+          "elapsedMs": 213.6531,
+          "validatedHeap": 30687968,
+          "fingerprintedHeap": 33158648,
+          "afterOutputHeap": 38179456
+        }
+      ],
+      "fingerprint": "ca5cd8f646780faa388aaaa8266a2b6e46d6cac963f191ef9558a7308a9fc402",
+      "outputHash": "922034da2b40f1b9a68177ab592d41d26aa7f1332b0c84353aafc615cb96dec1",
+      "outputBytes": 1231889,
+      "slicedCellReferences": 304000,
+      "duplicatedFingerprintReferences": 305000
+    },
+    {
+      "mode": "baseline",
+      "students": 999,
+      "dateColumns": 300,
+      "cells": 500000,
+      "startHeap": 8852544,
+      "maxRssBytes": 103809024,
+      "measured": [
+        {
+          "retain": false,
+          "elapsedMs": 202.01299999999998,
+          "validatedHeap": 21273800,
+          "fingerprintedHeap": 23755256,
+          "afterOutputHeap": 23757912
+        },
+        {
+          "retain": true,
+          "elapsedMs": 209.4133,
+          "validatedHeap": 25035216,
+          "fingerprintedHeap": 27501376,
+          "afterOutputHeap": 32521040
+        }
+      ],
+      "fingerprint": "4549f7b310420246f90dcb0c90656428817fc377cb726b24b2435cba0e62803d",
+      "outputHash": "bc4abe59b8c3da87c186d21f93e3efc73362e949dbea7f5eab94a26b2045f393",
+      "outputBytes": 1230657,
+      "slicedCellReferences": 303696,
+      "duplicatedFingerprintReferences": 304695
+    },
+    {
+      "mode": "current",
+      "students": 1000,
+      "dateColumns": 300,
+      "cells": 307307,
+      "startHeap": 7312256,
+      "maxRssBytes": 94765056,
+      "measured": [
+        {
+          "retain": false,
+          "elapsedMs": 206.0061,
+          "validatedHeap": 15793560,
+          "fingerprintedHeap": 15316072,
+          "afterOutputHeap": 15318728
+        },
+        {
+          "retain": true,
+          "elapsedMs": 207.4665,
+          "validatedHeap": 19097720,
+          "fingerprintedHeap": 24112728,
+          "afterOutputHeap": 29132904
+        }
+      ],
+      "fingerprint": "ca5cd8f646780faa388aaaa8266a2b6e46d6cac963f191ef9558a7308a9fc402",
+      "outputHash": "922034da2b40f1b9a68177ab592d41d26aa7f1332b0c84353aafc615cb96dec1",
+      "outputBytes": 1231889,
+      "slicedCellReferences": 0,
+      "duplicatedFingerprintReferences": 0
+    },
+    {
+      "mode": "current",
+      "students": 999,
+      "dateColumns": 300,
+      "cells": 500000,
+      "startHeap": 8853688,
+      "maxRssBytes": 96882688,
+      "measured": [
+        {
+          "retain": false,
+          "elapsedMs": 197.969,
+          "validatedHeap": 13009712,
+          "fingerprintedHeap": 18050312,
+          "afterOutputHeap": 18052968
+        },
+        {
+          "retain": true,
+          "elapsedMs": 204.0959,
+          "validatedHeap": 29503664,
+          "fingerprintedHeap": 34513672,
+          "afterOutputHeap": 24159624
+        }
+      ],
+      "fingerprint": "4549f7b310420246f90dcb0c90656428817fc377cb726b24b2435cba0e62803d",
+      "outputHash": "bc4abe59b8c3da87c186d21f93e3efc73362e949dbea7f5eab94a26b2045f393",
+      "outputBytes": 1230657,
+      "slicedCellReferences": 0,
+      "duplicatedFingerprintReferences": 0
+    }
+  ]
+}

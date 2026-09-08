@@ -1,0 +1,29 @@
+{
+  "scope": "Synthetic fixtures only; not real Discord, devices or signed Release APKs",
+  "source_commit": "512adc7e525c694b478022c3271c605ce413e7ec",
+  "run_url": "https://github.com/nononoyuyuyu/OC_tools/actions/runs/34193471117",
+  "job_id": 101956116119,
+  "note": "174 tests and analyze passed; job failed only on formatting. This run measured CI-formatted working files.",
+  "csv": {
+    "rows": 6000,
+    "csv_bytes_each": 4699917,
+    "checksum32_each": 1003095400,
+    "measurement": "Separate fresh Dart VM processes; 3 small warmups; one large encode; total process peak RSS includes VM/JIT",
+    "baseline": {"elapsed_us": 215117, "initial_rss_bytes": 187932672, "max_rss_bytes": 285589504},
+    "optimized": {"elapsed_us": 128055, "initial_rss_bytes": 187453440, "max_rss_bytes": 204636160},
+    "sdk": "Dart 3.12.2 stable linux_x64"
+  },
+  "http_context": {
+    "mock_response_delay_ms": 20,
+    "requests_each": 3,
+    "serial": {"max_concurrency": 1, "elapsed_us": 70138},
+    "parallel": {"max_concurrency": 3, "elapsed_us": 23199}
+  },
+  "removal_preview": {
+    "scanned_members": 5000,
+    "returned_targets": 5,
+    "requests_including_empty_page": 6,
+    "note": "The implementation retains only target details plus the current page; this test verifies behavior, not peak RSS."
+  },
+  "unmeasured": ["Flutter device heap", "end-to-end real Discord latency", "signed split APK sizes", "GAS memory", "history optimization"]
+}

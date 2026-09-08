@@ -1,0 +1,29 @@
+name: open_campus_organizer
+description: "オープンキャンパス運営を支援する総合アプリ"
+publish_to: 'none'
+version: 0.4.2+11
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  cupertino_icons: ^1.0.9
+  file_selector: ^1.1.0
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_secure_storage: ^11.0.0
+  http: ^1.6.0
+  path_provider: ^2.1.6
+  share_plus: ^13.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/branding/oco-master.png

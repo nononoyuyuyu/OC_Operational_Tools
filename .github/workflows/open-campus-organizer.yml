@@ -1,0 +1,146 @@
+name: Open Campus Organizerの検証
+
+on:
+  pull_request:
+    paths: ['Source/OpenCampusOrganizer/**', 'Tests/OpenCampusOrganizer/**', '.github/workflows/open-campus-organizer.yml']
+  push:
+    branches: [main]
+    paths: ['Source/OpenCampusOrganizer/**', 'Tests/OpenCampusOrganizer/**', '.github/workflows/open-campus-organizer.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: open-campus-organizer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: 解析・自動テスト
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Source/OpenCampusOrganizer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.4'
+          channel: stable
+          cache: true
+      - id: dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Dartフォーマット検証（修正差分を表示）
+        run: |
+          dart format lib tool ../../Tests/OpenCampusOrganizer
+          git diff --exit-code -- lib tool ../../Tests/OpenCampusOrganizer
+      - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: flutter analyze --no-pub
+      - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: flutter test --no-pub ../../Tests/OpenCampusOrganizer
+      - name: CSVの同一出力・別プロセスメモリ計測
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: dart run tool/csv_benchmark.dart
+      - run: flutter build web --no-pub --no-web-resources-cdn
+
+  build:
+    name: ${{ matrix.target }}ビルド
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: Windows
+            command: ./tool/build_windows_installer.ps1
+          - os: ubuntu-latest
+            target: Android
+            command: flutter build apk --debug --split-per-abi --no-pub
+          - os: macos-latest
+            target: iOS
+            command: flutter build ios --simulator --no-codesign --no-pub
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Source/OpenCampusOrganizer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: APK出力レイアウトとPowerShell構文の検証
+        if: matrix.target == 'Windows'
+        shell: pwsh
+        run: |
+          ../../Tests/OpenCampusOrganizer/android_release_layout_test.ps1
+          ../../Tests/OpenCampusOrganizer/icon_assets_test.ps1
+      - name: Windowsインストーラー作成環境の準備
+        if: matrix.target == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.0-x64.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe' -OutFile $setup
+          if ((Get-FileHash $setup).Hash -ne '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f') { throw 'Inno Setupのハッシュ不一致' }
+          $signature = Get-AuthenticodeSignature $setup
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B.V.') { throw 'Inno Setupの署名不一致' }
+          $installPath = Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7'
+          $process = Start-Process $setup -ArgumentList @('/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS', '/TASKS=""', ('/DIR="' + $installPath + '"')) -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Inno Setupの導入失敗' }
+      - run: ${{ matrix.command }}
+      - name: Windowsのテーマアイコンを実ウィンドウで検証
+        if: matrix.target == 'Windows'
+        shell: pwsh
+        run: |
+          cmake --build build/windows/x64 --config Release --target oco_appearance_test
+          if ($LASTEXITCODE -ne 0) { throw '外観テストのビルド失敗' }
+          $env:PATH = "$((Resolve-Path 'windows/flutter/ephemeral').Path);$env:PATH"
+          & build/windows/x64/appearance_test/Release/oco_appearance_test.exe
+          if ($LASTEXITCODE -ne 0) { throw '外観テスト失敗' }
+      - name: CPU別APKのビルド番号とABIを検証
+        if: matrix.target == 'Android'
+        run: python3 ../../Tests/OpenCampusOrganizer/android_apk_version_test.py
+      - name: Androidのアイコン切替テストAPKをコンパイル
+        if: matrix.target == 'Android'
+        run: cd android && ./gradlew :app:assembleDebugAndroidTest --console=plain
+      - name: 署名情報のないAndroid Releaseを拒否
+        if: matrix.target == 'Android'
+        shell: bash
+        run: |
+          set +e
+          (cd android && ./gradlew :app:preReleaseBuild --console=plain) > "$RUNNER_TEMP/oco-signing-check.log" 2>&1
+          result=$?
+          set -e
+          if [ "$result" -eq 0 ]; then
+            echo '署名情報のないReleaseを拒否できませんでした。'
+            exit 1
+          fi
+          grep -q 'OCO_RELEASE_SIGNING_REQUIRED' "$RUNNER_TEMP/oco-signing-check.log"
+      - name: Windowsの導入・更新・削除を検証
+        if: matrix.target == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem '../../artifacts/release/*/*-windows-x64-setup.exe')
+          if ($installers.Count -ne 1) { throw 'インストーラーが一意ではありません。' }
+          & ../../Tests/OpenCampusOrganizer/windows_installer_test.ps1 -Installer $installers[0].FullName
+      - name: Windowsインストーラーを保存
+        if: matrix.target == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: OpenCampusOrganizer-windows-installer
+          path: artifacts/release/*/*-windows-x64-setup.exe
+          if-no-files-found: error
+      - name: Windowsの設定・履歴の引き継ぎと削除を検証
+        if: matrix.target == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $testRoot = [IO.Path]::GetFullPath('../../artifacts/userdata-ci')
+          $testOutput = [IO.Path]::GetFullPath('../../artifacts/userdata-ci-installer')
+          & ./tool/build_windows_installer.ps1 -UserDataTestRoot $testRoot -OutputDirectory $testOutput
+          & ../../Tests/OpenCampusOrganizer/windows_userdata_test.ps1 -Installer (Join-Path $testOutput 'OpenCampusOrganizer-userdata-test-setup.exe')

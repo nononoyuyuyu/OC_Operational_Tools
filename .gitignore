@@ -1,0 +1,10 @@
+# 検証・配布物と端末固有の情報
+artifacts/
+**/.env
+**/.env.*
+**/token.dat
+**/key.properties
+**/*.keystore
+**/*.jks
+**/*.dpapi
+**/.DS_Store

@@ -1,0 +1,37 @@
+name: OC Kakutei Extractorの検証
+
+on:
+  pull_request:
+    paths:
+      - 'Source/OC_KakuteiExtractor/**'
+      - 'Tests/OC_KakuteiExtractor/**'
+      - '.github/workflows/kakutei-extractor.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Source/OC_KakuteiExtractor/**'
+      - 'Tests/OC_KakuteiExtractor/**'
+      - '.github/workflows/kakutei-extractor.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kakutei-extractor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: GASの単体・統合・安全性テスト
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: RunnerのNode.jsを確認
+        run: |
+          node --version
+          node -e "if (Number(process.versions.node.split('.')[0]) < 18) process.exit(1)"
+      - name: 外部依存なしで全GASテストを実行
+        run: node --test Tests/OC_KakuteiExtractor/*.test.js
