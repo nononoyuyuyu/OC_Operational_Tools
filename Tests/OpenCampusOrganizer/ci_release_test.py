@@ -57,6 +57,9 @@ class ReleasePlanTest(unittest.TestCase):
         self.assertTrue(ci.ci_only_change(paths))
         for path in [ci.VERSION_FILE, ci.APP + "lib/main.dart", "Tests/OpenCampusOrganizer/android_appearance/LauncherLifecycleTest.kt"]:
             self.assertFalse(ci.ci_only_change(paths + [path]))
+        for path in [".github/actions/flutter-setup/setup.sh", ".github/scripts/test_android_lifecycle.sh", ".github/scripts/new_script.py"]:
+            self.assertFalse(ci.ci_only_change(paths + [path]))
+            self.assertTrue(ci.scope([path])[1])
 
     def test_only_untagged_newer_release_can_resume_after_ci_fix(self):
         self.assertTrue(ci.pending_release("0.4.4", ["v0.4.3"]))

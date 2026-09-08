@@ -44,7 +44,10 @@ def pending_release(version, tags):
 
 
 def ci_only_change(paths):
-    return all(path.startswith((".github/", "Docs/", "Tests/OpenCampusOrganizer/ci_")) or path in {"README.md", ".gitignore"} for path in paths)
+    checked_scripts = {f".github/scripts/{name}" for name in (
+        "oco_ci.py", "publish_release.py", "audit_payload.py", "build_android_ci.py", "lint_workflows.sh",
+    )}
+    return all(path.startswith((".github/workflows/", "Docs/", "Tests/OpenCampusOrganizer/ci_")) or path in checked_scripts | {"README.md", ".gitignore"} for path in paths)
 
 
 def scope(paths):
@@ -53,7 +56,7 @@ def scope(paths):
     native_android = False
     for path in paths:
         # 配布用Pythonの変更はplanジョブのテストで検証し、PRでアプリを再ビルドしない。
-        if (path.startswith(".github/scripts/") and path.endswith(".py")) or path.startswith("Tests/OpenCampusOrganizer/ci_"):
+        if (path.startswith(".github/scripts/") and path.endswith(".py") and ci_only_change([path])) or path.startswith("Tests/OpenCampusOrganizer/ci_"):
             continue
         if path.startswith(".github/"):
             targets.update(TARGETS)
