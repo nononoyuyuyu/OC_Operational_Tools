@@ -38,12 +38,20 @@ def validate_version(current, previous, app_changed, tags):
     return True
 
 
+def pending_release(version, tags):
+    released = [tuple(map(int, match.groups())) for tag in tags if (match := re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag))]
+    return f"v{version}" not in tags and bool(released) and tuple(map(int, version.split("."))) > max(released)
+
+
 def scope(paths):
     targets = set()
     test = False
     native_android = False
     for path in paths:
-        if path.startswith((".github/", "Tests/OpenCampusOrganizer/ci_")):
+        # 配布用Pythonの変更はplanジョブのテストで検証し、PRでアプリを再ビルドしない。
+        if (path.startswith(".github/scripts/") and path.endswith(".py")) or path.startswith("Tests/OpenCampusOrganizer/ci_"):
+            continue
+        if path.startswith(".github/"):
             targets.update(TARGETS)
             test = native_android = True
         elif path.startswith(APP):
@@ -108,7 +116,8 @@ def main():
                 continue
         relevant.append(path)
     test, targets, native_android = scope(relevant)
-    release = kind != "pull_request" and os.environ["GITHUB_REF"] == "refs/heads/main" and bumped
+    # 公開前のCI修正ではアプリの番号を変えず、まだタグのない最新バージョンを配布する。
+    release = kind != "pull_request" and os.environ["GITHUB_REF"] == "refs/heads/main" and (bumped or pending_release(version, tags))
     if release or kind == "workflow_dispatch":
         test = True
         targets.update(TARGETS)

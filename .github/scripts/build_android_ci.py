@@ -11,6 +11,13 @@ SIGNER = "067f21d198dacdbea0f618e89a09a1b61ac7bccfe0917604daced28222ac12e2"
 APP_ID = "jp.nononoyuyuyu.open_campus_organizer"
 
 
+def verify_signers(output):
+    # SDKにより「Signer #1」「V3 Signer」などの接頭辞が異なる。
+    digests = re.findall(r"certificate SHA-256 digest:\s*([0-9a-fA-F]{64})\b", output)
+    if not digests or {value.lower() for value in digests} != {SIGNER}:
+        raise ValueError(f"APKの署名が既存の配布鍵と一致しません。公開証明書SHA-256: {digests}")
+
+
 def main():
     if os.environ.get("GITHUB_REF") != "refs/heads/main" or os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
         raise ValueError("配布署名はmainだけで実行できます。")
@@ -29,13 +36,16 @@ def main():
         del encoded
         os.environ["OCO_ANDROID_STORE_FILE"] = str(key)
         try:
+            certificate = subprocess.check_output(["keytool", "-list", "-v", "-keystore", str(key), "-alias", os.environ["OCO_ANDROID_KEY_ALIAS"], "-storepass:env", "OCO_ANDROID_STORE_PASSWORD"], text=True, stderr=subprocess.PIPE)
+            fingerprints = re.findall(r"SHA256:\s*([0-9A-Fa-f:]+)", certificate)
+            if not fingerprints or {value.replace(":", "").lower() for value in fingerprints} != {SIGNER}:
+                raise ValueError("release環境の鍵が配布済み証明書と一致しません。")
             for split in (False, True):
                 subprocess.run(["flutter", "build", "apk", "--release", "--no-pub", *(["--split-per-abi"] if split else [])], check=True)
                 for abi in (["armeabi-v7a", "arm64-v8a", "x86_64"] if split else [None]):
                     source = Path("build/app/outputs/flutter-apk") / (f"app-{abi}-release.apk" if abi else "app-release.apk")
                     signature = subprocess.check_output([str(tool / "apksigner"), "verify", "--print-certs", str(source)], text=True)
-                    if f"Signer #1 certificate SHA-256 digest: {SIGNER}" not in signature:
-                        raise ValueError("APKの署名が既存の配布鍵と一致しません。")
+                    verify_signers(signature)
                     badging = subprocess.check_output([str(tool / "aapt"), "dump", "badging", str(source)], text=True)
                     if f"package: name='{APP_ID}' versionCode='{build}' versionName='{version}'" not in badging or "application-debuggable" in badging:
                         raise ValueError("APKのID・配布番号・Debug属性が不正です。")

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 from audit_payload import audit
@@ -33,6 +34,20 @@ def expected_names(version):
     ]}
 
 
+def collect_assets(download, destination, version):
+    paths = list(download.rglob("*"))
+    if any(path.is_symlink() for path in paths):
+        raise ValueError("配布物にシンボリックリンクは使用できません。")
+    files = [path for path in paths if path.is_file()]
+    expected = expected_names(version)
+    if len(files) != len(expected) or {path.name for path in files} != expected:
+        raise ValueError("配布ファイルはインストーラー1個と署名済みAPK4個だけである必要があります。")
+    destination.mkdir(parents=True, exist_ok=True)
+    # upload-artifactが保持するバージョンディレクトリを取り除き、公開名を一意にする。
+    for path in files:
+        shutil.copyfile(path, destination / path.name)
+
+
 def verify_download(tag, hashes):
     with tempfile.TemporaryDirectory(prefix="oco-download-") as folder:
         gh("release", "download", tag, "--dir", folder)
@@ -48,10 +63,10 @@ def main():
     sha = os.environ["GITHUB_SHA"]
     version = re.search(r"^version: (\d+\.\d+\.\d+)\+\d+\s*$", Path("Source/OpenCampusOrganizer/pubspec.yaml").read_text(), re.M)[1]
     tag = f"v{version}"
-    dist = Path("dist")
+    download = Path("dist")
+    dist = Path(tempfile.mkdtemp(prefix="oco-release-stage-", dir=os.environ["RUNNER_TEMP"]))
     expected = expected_names(version)
-    if {p.name for p in dist.iterdir()} != expected:
-        raise ValueError("配布ファイルはインストーラー1個と署名済みAPK4個だけである必要があります。")
+    collect_assets(download, dist, version)
     for path in dist.iterdir():
         audit(path)
     checksums = "".join(f"{sha256(dist / name)}  {name}\n" for name in sorted(expected))
