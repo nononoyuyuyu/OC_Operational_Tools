@@ -52,6 +52,15 @@ class ReleasePlanTest(unittest.TestCase):
     def test_release_python_changes_do_not_rebuild_apps_in_pr(self):
         self.assertEqual((False, set(), False), ci.scope([".github/scripts/publish_release.py", ".github/scripts/build_android_ci.py", ".github/scripts/oco_ci.py", "Tests/OpenCampusOrganizer/ci_release_test.py"]))
 
+    def test_ci_only_pr_does_not_hide_application_or_native_test_changes(self):
+        paths = [".github/workflows/open-campus-organizer.yml", ".github/scripts/lint_workflows.sh", "Docs/OpenCampusOrganizer/CIと自動公開.md"]
+        self.assertTrue(ci.ci_only_change(paths))
+        for path in [ci.VERSION_FILE, ci.APP + "lib/main.dart", "Tests/OpenCampusOrganizer/android_appearance/LauncherLifecycleTest.kt"]:
+            self.assertFalse(ci.ci_only_change(paths + [path]))
+        for path in [".github/actions/flutter-setup/setup.sh", ".github/scripts/test_android_lifecycle.sh", ".github/scripts/new_script.py"]:
+            self.assertFalse(ci.ci_only_change(paths + [path]))
+            self.assertTrue(ci.scope([path])[1])
+
     def test_only_untagged_newer_release_can_resume_after_ci_fix(self):
         self.assertTrue(ci.pending_release("0.4.4", ["v0.4.3"]))
         self.assertFalse(ci.pending_release("0.4.4", ["v0.4.3", "v0.4.4"]))

@@ -43,13 +43,20 @@ def pending_release(version, tags):
     return f"v{version}" not in tags and bool(released) and tuple(map(int, version.split("."))) > max(released)
 
 
+def ci_only_change(paths):
+    checked_scripts = {f".github/scripts/{name}" for name in (
+        "oco_ci.py", "publish_release.py", "audit_payload.py", "build_android_ci.py", "lint_workflows.sh",
+    )}
+    return all(path.startswith((".github/workflows/", "Docs/", "Tests/OpenCampusOrganizer/ci_")) or path in checked_scripts | {"README.md", ".gitignore"} for path in paths)
+
+
 def scope(paths):
     targets = set()
     test = False
     native_android = False
     for path in paths:
         # 配布用Pythonの変更はplanジョブのテストで検証し、PRでアプリを再ビルドしない。
-        if (path.startswith(".github/scripts/") and path.endswith(".py")) or path.startswith("Tests/OpenCampusOrganizer/ci_"):
+        if (path.startswith(".github/scripts/") and path.endswith(".py") and ci_only_change([path])) or path.startswith("Tests/OpenCampusOrganizer/ci_"):
             continue
         if path.startswith(".github/"):
             targets.update(TARGETS)
@@ -84,7 +91,8 @@ def main():
     base = event["pull_request"]["base"]["sha"] if kind == "pull_request" else (event.get("before") or git("rev-parse", "HEAD^"))
     if not re.fullmatch(r"[0-9a-f]{40}", base) or base == "0" * 40:
         raise ValueError("比較元コミットを確認できません。")
-    paths = git("diff", "--name-only", base, "HEAD").splitlines()
+    # 日本語や空白を含むパスもGitの引用表記へ変換せず、そのまま判定する。
+    paths = subprocess.check_output(["git", "diff", "--name-only", "-z", base, "HEAD"]).decode("utf-8").split("\0")[:-1]
     current = parse_version(Path(VERSION_FILE).read_text(encoding="utf-8"))
     previous = parse_version(git("show", f"{base}:{VERSION_FILE}"))
     tags = git("tag", "--list", "v*").splitlines()
@@ -116,6 +124,9 @@ def main():
                 continue
         relevant.append(path)
     test, targets, native_android = scope(relevant)
+    # CI定義だけのPRは構文・判定テストで確認し、mainで実行経路を検証する。
+    if kind == "pull_request" and ci_only_change(paths):
+        test, targets, native_android = False, set(), False
     # 公開前のCI修正ではアプリの番号を変えず、まだタグのない最新バージョンを配布する。
     release = kind != "pull_request" and os.environ["GITHUB_REF"] == "refs/heads/main" and (bumped or pending_release(version, tags))
     if release or kind == "workflow_dispatch":

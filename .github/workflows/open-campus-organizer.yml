@@ -32,6 +32,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - run: python3 Tests/OpenCampusOrganizer/ci_release_test.py
+      - run: bash .github/scripts/lint_workflows.sh
       - id: plan
         run: python3 .github/scripts/oco_ci.py
 
@@ -154,19 +155,6 @@ jobs:
         if: matrix.target == 'Android' && needs.plan.outputs.native_android == 'true'
         shell: bash
         run: bash ../../.github/scripts/test_android_lifecycle.sh
-      - name: 署名情報のないAndroid Releaseを拒否
-        if: matrix.target == 'Android'
-        shell: bash
-        run: |
-          set +e
-          (cd android && ./gradlew :app:preReleaseBuild --console=plain) > "$RUNNER_TEMP/oco-signing-check.log" 2>&1
-          result=$?
-          set -e
-          if [ "$result" -eq 0 ]; then
-            echo '署名情報のないReleaseを拒否できませんでした。'
-            exit 1
-          fi
-          grep -q 'OCO_RELEASE_SIGNING_REQUIRED' "$RUNNER_TEMP/oco-signing-check.log"
       - name: Windowsの導入・更新・削除を検証
         if: matrix.target == 'Windows'
         shell: pwsh
@@ -200,6 +188,19 @@ jobs:
           OCO_ANDROID_STORE_PASSWORD: ${{ secrets.OCO_ANDROID_STORE_PASSWORD }}
           OCO_ANDROID_KEY_ALIAS: open-campus-organizer
         run: python3 ../../.github/scripts/build_android_ci.py
+      - name: 署名情報のないAndroid Releaseを拒否
+        if: matrix.target == 'Android'
+        shell: bash
+        run: |
+          set +e
+          (cd android && ./gradlew :app:preReleaseBuild --console=plain) > "$RUNNER_TEMP/oco-signing-check.log" 2>&1
+          result=$?
+          set -e
+          if [ "$result" -eq 0 ]; then
+            echo '署名情報のないReleaseを拒否できませんでした。'
+            exit 1
+          fi
+          grep -q 'OCO_RELEASE_SIGNING_REQUIRED' "$RUNNER_TEMP/oco-signing-check.log"
       - name: Android配布APKを保存
         if: matrix.target == 'Android' && needs.plan.outputs.release == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
