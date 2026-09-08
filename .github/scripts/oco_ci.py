@@ -88,7 +88,8 @@ def main():
     base = event["pull_request"]["base"]["sha"] if kind == "pull_request" else (event.get("before") or git("rev-parse", "HEAD^"))
     if not re.fullmatch(r"[0-9a-f]{40}", base) or base == "0" * 40:
         raise ValueError("比較元コミットを確認できません。")
-    paths = git("diff", "--name-only", base, "HEAD").splitlines()
+    # 日本語や空白を含むパスもGitの引用表記へ変換せず、そのまま判定する。
+    paths = subprocess.check_output(["git", "diff", "--name-only", "-z", base, "HEAD"]).decode("utf-8").split("\0")[:-1]
     current = parse_version(Path(VERSION_FILE).read_text(encoding="utf-8"))
     previous = parse_version(git("show", f"{base}:{VERSION_FILE}"))
     tags = git("tag", "--list", "v*").splitlines()
