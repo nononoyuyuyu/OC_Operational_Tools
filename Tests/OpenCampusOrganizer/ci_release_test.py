@@ -14,6 +14,7 @@ spec.loader.exec_module(ci)
 sys.path.insert(0, str(script.parent))
 import publish_release
 import audit_payload
+import build_android_ci
 
 
 class ReleasePlanTest(unittest.TestCase):
@@ -48,6 +49,45 @@ class ReleasePlanTest(unittest.TestCase):
         for path in [ci.APP + "lib/main.dart", ci.APP + "pubspec.yaml", ".github/workflows/open-campus-organizer.yml"]:
             self.assertEqual(set(ci.TARGETS), ci.scope([path])[1])
 
+    def test_release_python_changes_do_not_rebuild_apps_in_pr(self):
+        self.assertEqual((False, set(), False), ci.scope([".github/scripts/publish_release.py", ".github/scripts/build_android_ci.py", ".github/scripts/oco_ci.py", "Tests/OpenCampusOrganizer/ci_release_test.py"]))
+
+    def test_only_untagged_newer_release_can_resume_after_ci_fix(self):
+        self.assertTrue(ci.pending_release("0.4.4", ["v0.4.3"]))
+        self.assertFalse(ci.pending_release("0.4.4", ["v0.4.3", "v0.4.4"]))
+        self.assertFalse(ci.pending_release("0.4.4", ["v0.4.5"]))
+        self.assertFalse(ci.pending_release("0.4.4", []))
+
+    def test_signer_prefix_variations(self):
+        for prefix in ["Signer #1", "V3 Signer:", "Signer (minSdkVersion=24, maxSdkVersion=32)"]:
+            build_android_ci.verify_signers(f"{prefix} certificate SHA-256 digest: {build_android_ci.SIGNER}")
+
+    def test_missing_or_different_signer_is_rejected(self):
+        for value in ["", "certificate SHA-256 digest: " + "0" * 64,
+                      f"certificate SHA-256 digest: {build_android_ci.SIGNER}\ncertificate SHA-256 digest: " + "0" * 64]:
+            with self.assertRaises(ValueError):
+                build_android_ci.verify_signers(value)
+
+    def test_nested_windows_artifact_becomes_flat_release_assets(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            download = root / "download"
+            names = publish_release.expected_names("0.4.4")
+            for name in names:
+                path = download / "0.4.4" / name if name.endswith(".exe") else download / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(name.encode())
+            publish_release.collect_assets(download, root / "stage", "0.4.4")
+            self.assertEqual(names, {path.name for path in (root / "stage").iterdir()})
+            for name in names:
+                self.assertEqual(name.encode(), (root / "stage" / name).read_bytes())
+            # 同じファイル名が2階層に存在する場合は上書きで隠さず拒否する。
+            duplicate = next(iter(names))
+            (download / "duplicate").mkdir()
+            (download / "duplicate" / duplicate).write_bytes(b"different")
+            with self.assertRaises(ValueError):
+                publish_release.collect_assets(download, root / "rejected", "0.4.4")
+
     def test_release_is_forbidden_from_pr_and_non_main(self):
         for event, ref in [("pull_request", "refs/heads/main"), ("push", "refs/heads/codex/example")]:
             with patch.dict(os.environ, {"GITHUB_EVENT_NAME": event, "GITHUB_REF": ref}), patch.object(publish_release, "gh") as remote:
@@ -71,7 +111,7 @@ class ReleasePlanTest(unittest.TestCase):
             old = Path.cwd()
             try:
                 os.chdir(root)
-                with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main", "GITHUB_REPOSITORY": "example/repo", "GITHUB_SHA": "a" * 40}), patch.object(publish_release, "gh") as remote:
+                with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main", "GITHUB_REPOSITORY": "example/repo", "GITHUB_SHA": "a" * 40, "RUNNER_TEMP": folder}), patch.object(publish_release, "gh") as remote:
                     with self.assertRaises(ValueError):
                         publish_release.main()
                     remote.assert_not_called()
