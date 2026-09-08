@@ -3,10 +3,8 @@ name: Open Campus Organizerの検証
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['Source/OpenCampusOrganizer/**', 'Tests/OpenCampusOrganizer/**', '.github/workflows/open-campus-organizer.yml']
   push:
     branches: [main]
-    paths: ['Source/OpenCampusOrganizer/**', 'Tests/OpenCampusOrganizer/**', '.github/workflows/open-campus-organizer.yml']
 
 permissions:
   contents: read

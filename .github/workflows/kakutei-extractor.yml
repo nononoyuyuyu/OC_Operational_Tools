@@ -3,16 +3,8 @@ name: OC Kakutei Extractorの検証
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - 'Source/OC_KakuteiExtractor/**'
-      - 'Tests/OC_KakuteiExtractor/**'
-      - '.github/workflows/kakutei-extractor.yml'
   push:
     branches: [main]
-    paths:
-      - 'Source/OC_KakuteiExtractor/**'
-      - 'Tests/OC_KakuteiExtractor/**'
-      - '.github/workflows/kakutei-extractor.yml'
 
 permissions:
   contents: read
