@@ -1,7 +1,7 @@
 name: open_campus_organizer
 description: "オープンキャンパス運営を支援する総合アプリ"
 publish_to: 'none'
-version: 0.4.3+12
+version: 0.4.4+13
 
 environment:
   sdk: ^3.12.2

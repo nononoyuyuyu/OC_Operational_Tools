@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application
-        android:label="Open Campus Organizer"
+        android:label="OC"
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:name=".OcoApplication"
@@ -29,41 +29,45 @@
               android:resource="@style/NormalTheme"
               />
         </activity>
-        <activity-alias android:name=".Launcher_dark" android:targetActivity=".MainActivity"
+        <activity android:name=".LauncherActivity" android:exported="false"
+            android:taskAffinity="${applicationId}.launcher"
+            android:noHistory="true" android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+        <activity-alias android:name=".Launcher_dark" android:targetActivity=".LauncherActivity"
             android:enabled="true" android:exported="true"
-            android:icon="@mipmap/ic_launcher_dark" android:label="Open Campus Organizer">
+            android:icon="@mipmap/ic_launcher_dark" android:label="OC">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity-alias>
-        <activity-alias android:name=".Launcher_light" android:targetActivity=".MainActivity"
+        <activity-alias android:name=".Launcher_light" android:targetActivity=".LauncherActivity"
             android:enabled="false" android:exported="true"
-            android:icon="@mipmap/ic_launcher_light" android:label="Open Campus Organizer">
+            android:icon="@mipmap/ic_launcher_light" android:label="OC">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity-alias>
-        <activity-alias android:name=".Launcher_warm" android:targetActivity=".MainActivity"
+        <activity-alias android:name=".Launcher_warm" android:targetActivity=".LauncherActivity"
             android:enabled="false" android:exported="true"
-            android:icon="@mipmap/ic_launcher_warm" android:label="Open Campus Organizer">
+            android:icon="@mipmap/ic_launcher_warm" android:label="OC">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity-alias>
-        <activity-alias android:name=".Launcher_sage" android:targetActivity=".MainActivity"
+        <activity-alias android:name=".Launcher_sage" android:targetActivity=".LauncherActivity"
             android:enabled="false" android:exported="true"
-            android:icon="@mipmap/ic_launcher_sage" android:label="Open Campus Organizer">
+            android:icon="@mipmap/ic_launcher_sage" android:label="OC">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity-alias>
-        <activity-alias android:name=".Launcher_orange" android:targetActivity=".MainActivity"
+        <activity-alias android:name=".Launcher_orange" android:targetActivity=".LauncherActivity"
             android:enabled="false" android:exported="true"
-            android:icon="@mipmap/ic_launcher_orange" android:label="Open Campus Organizer">
+            android:icon="@mipmap/ic_launcher_orange" android:label="OC">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

@@ -28,8 +28,9 @@ class LauncherAppearanceTest {
                     assertEquals("公開する起動アイコンは1個", 1, activities.size)
                     val activity = activities.single().activityInfo
                     assertEquals("${context.packageName}.Launcher_$theme", activity.name)
-                    assertEquals("${context.packageName}.MainActivity", activity.targetActivity)
+                    assertEquals("${context.packageName}.LauncherActivity", activity.targetActivity)
                     assertNotNull(activity.loadIcon(manager))
+                    assertEquals("OC", activity.loadLabel(manager).toString())
                     icons.add(activity.icon)
                     val main = manager.getActivityInfo(ComponentName(context, MainActivity::class.java), 0)
                     assertTrue("通知からの起動先を無効化しない", main.enabled)

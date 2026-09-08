@@ -8,3 +8,5 @@ artifacts/
 **/*.jks
 **/*.dpapi
 **/.DS_Store
+**/__pycache__/
+.oco-pub-cache/
