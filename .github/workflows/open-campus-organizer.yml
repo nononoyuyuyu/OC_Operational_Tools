@@ -95,6 +95,24 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get --enforce-lockfile
+      - name: Androidの依存関係をキャッシュ
+        if: matrix.target == 'Android'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper
+          key: android-gradle-${{ hashFiles('Source/OpenCampusOrganizer/android/**/*.gradle.kts', 'Source/OpenCampusOrganizer/android/gradle/wrapper/gradle-wrapper.properties', 'Source/OpenCampusOrganizer/pubspec.lock') }}
+      - name: Androidテスト用SDKの場所を確認
+        if: matrix.target == 'Android' && needs.plan.outputs.native_android == 'true'
+        id: android_sdk
+        run: echo "root=$ANDROID_HOME" >> "$GITHUB_OUTPUT"
+      - name: Androidテスト用システムイメージをキャッシュ
+        if: matrix.target == 'Android' && needs.plan.outputs.native_android == 'true'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: ${{ steps.android_sdk.outputs.root }}/system-images/android-35
+          key: android-api35-google-apis-x86_64-v1
       - name: APK出力レイアウトとPowerShell構文の検証
         if: matrix.target == 'Windows'
         shell: pwsh
