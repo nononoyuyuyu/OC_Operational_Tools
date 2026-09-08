@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ビルドだけでは検出できない、起動元alias無効化による画面終了を検証する。
 set -euo pipefail
-sdkmanager 'system-images;android-35;google_apis;x86_64' >/dev/null
+export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64' >/dev/null
 printf 'no\n' | avdmanager create avd --name oco-ci --package 'system-images;android-35;google_apis;x86_64' --force >/dev/null
 sudo chmod a+rw /dev/kvm
 "$ANDROID_HOME/emulator/emulator" -avd oco-ci -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RUNNER_TEMP/oco-emulator.log" 2>&1 &

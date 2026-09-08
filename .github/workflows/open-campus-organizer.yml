@@ -80,6 +80,7 @@ jobs:
     environment: ${{ needs.plan.outputs.release == 'true' && 'release' || 'validation' }}
     env:
       PUB_CACHE: ${{ github.workspace }}/.oco-pub-cache
+      PYTHONUTF8: '1'
     timeout-minutes: 30
     defaults:
       run:
