@@ -1,4 +1,4 @@
-# OC_tools
+# OC_Operational_Tools
 
 オープンキャンパス業務で使用するツールのソースコードとドキュメントを管理するリポジトリです。
 
@@ -14,7 +14,7 @@ Windows・Android・iOSを対象とするFlutterアプリです。ツール一�
 
 - [使い方・ビルド方法](Docs/OpenCampusOrganizer/使い方.md)
 - [インストーラー・APKの配布と作成](Docs/OpenCampusOrganizer/配布.md)
-- [最新版のダウンロード](https://github.com/nononoyuyuyu/OC_tools/releases/latest)
+- [配布ファイル](https://github.com/nononoyuyuyu/OC_Operational_Tools/releases)
 - [構成と機能追加](Docs/OpenCampusOrganizer/設計.md)
 - [機能対応表と検証範囲](Docs/OpenCampusOrganizer/検証.md)
 - [UI調査と設計判断](Docs/OpenCampusOrganizer/UI再設計.md)
