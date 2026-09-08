@@ -117,6 +117,8 @@ def main():
     result = {
         "test": str(test).lower(), "build": str(bool(targets)).lower(),
         "native_android": str(native_android).lower(), "release": str(release).lower(),
+        "web": str(kind == "workflow_dispatch").lower(),
+        "benchmark": str(kind == "workflow_dispatch" or any("csv" in path.lower() for path in paths)).lower(),
         "version": version, "build_number": str(build),
         "matrix": json.dumps({"include": [{"target": t, "os": TARGETS[t]} for t in TARGETS if t in targets]}),
     }

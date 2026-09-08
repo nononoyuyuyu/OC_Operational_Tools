@@ -24,6 +24,8 @@ jobs:
       native_android: ${{ steps.plan.outputs.native_android }}
       release: ${{ steps.plan.outputs.release }}
       version: ${{ steps.plan.outputs.version }}
+      web: ${{ steps.plan.outputs.web }}
+      benchmark: ${{ steps.plan.outputs.benchmark }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -62,9 +64,10 @@ jobs:
       - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: flutter test --no-pub ../../Tests/OpenCampusOrganizer
       - name: CSVの同一出力・別プロセスメモリ計測
-        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && needs.plan.outputs.benchmark == 'true' }}
         run: dart run tool/csv_benchmark.dart
-      - run: flutter build web --no-pub --no-web-resources-cdn
+      - if: needs.plan.outputs.web == 'true'
+        run: flutter build web --no-pub --no-web-resources-cdn
 
   build:
     name: ${{ matrix.target }}ビルド
