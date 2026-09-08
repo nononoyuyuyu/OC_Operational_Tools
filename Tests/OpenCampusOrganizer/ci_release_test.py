@@ -1,10 +1,12 @@
 """不要なビルドの省略と不正な配布番号の拒否を検証する。"""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 script = Path(__file__).resolve().parents[2] / ".github/scripts/oco_ci.py"
@@ -104,12 +106,79 @@ class ReleasePlanTest(unittest.TestCase):
                     publish_release.main()
                 remote.assert_not_called()
 
+    def test_draft_lookup_uses_all_pages_when_tag_endpoint_returns_404(self):
+        draft = {"tag_name": "v0.4.4", "draft": True, "assets": [], "id": 42}
+        pages = [[{"tag_name": "v0.4.3"}], [draft]]
+        with patch.object(publish_release, "api_optional", return_value=None), patch.object(publish_release, "gh", return_value=json.dumps(pages)) as remote:
+            self.assertEqual(draft, publish_release.find_release("example/repo", "v0.4.4"))
+            remote.assert_called_once_with("api", "--paginate", "--slurp", "repos/example/repo/releases?per_page=100")
+
+    def test_release_lookup_handles_published_absent_and_duplicate_drafts(self):
+        published = {"tag_name": "v0.4.4", "draft": False}
+        with patch.object(publish_release, "api_optional", return_value=published), patch.object(publish_release, "gh") as remote:
+            self.assertEqual(published, publish_release.find_release("example/repo", "v0.4.4"))
+            remote.assert_not_called()
+        with patch.object(publish_release, "api_optional", return_value=None), patch.object(publish_release, "gh", return_value="[[]]"):
+            self.assertIsNone(publish_release.find_release("example/repo", "v0.4.4"))
+        with patch.object(publish_release, "api_optional", return_value=None), patch.object(publish_release, "gh", return_value=json.dumps([[published, published]])):
+            with self.assertRaises(ValueError):
+                publish_release.find_release("example/repo", "v0.4.4")
+
     def test_download_requires_exact_asset_set_and_hashes(self):
         def fake_download(*args):
             folder = Path(args[-1])
             (folder / "artifact.apk").write_bytes(b"changed")
         with patch.object(publish_release, "gh", side_effect=fake_download), self.assertRaises(ValueError):
             publish_release.verify_download("v0.4.4", {"artifact.apk": "0" * 64})
+
+    def test_publish_creates_uploads_verifies_and_publishes_a_hidden_draft(self):
+        state = {"release": None}
+        sha = "a" * 40
+        def remote_api(endpoint):
+            release = state["release"]
+            if endpoint.endswith("/releases/latest"):
+                return {"tag_name": "v0.4.3"}
+            if endpoint.endswith("/git/ref/tags/v0.4.4"):
+                return {"object": {"type": "commit", "sha": sha}} if release and not release["draft"] else None
+            return release if release and not release["draft"] else None
+        def remote(*args):
+            if args[0] == "api":
+                return json.dumps([[state["release"]] if state["release"] else []])
+            if args[:2] == ("release", "create"):
+                state["release"] = {"tag_name": "v0.4.4", "target_commitish": sha, "body": Path(args[-1]).read_text(encoding="utf-8"), "draft": True, "prerelease": False, "assets": [], "html_url": "https://example.test/release"}
+            elif args[:2] == ("release", "upload"):
+                file = Path(args[-1])
+                state["release"]["assets"].append({"name": file.name, "digest": "sha256:" + publish_release.sha256(file)})
+            elif args[:2] == ("release", "edit"):
+                state["release"]["draft"] = False
+            else:
+                self.fail(f"Unexpected command: {args}")
+            return ""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / ci.VERSION_FILE).parent.mkdir(parents=True)
+            (root / ci.VERSION_FILE).write_text("version: 0.4.4+13\n")
+            notes = root / "Docs/OpenCampusOrganizer/releases/0.4.4.md"
+            notes.parent.mkdir(parents=True)
+            notes.write_text("Release fixture")
+            (root / "dist").mkdir()
+            for name in publish_release.expected_names("0.4.4"):
+                file = root / "dist" / name
+                if name.endswith(".apk"):
+                    with zipfile.ZipFile(file, "w") as apk:
+                        apk.writestr("fixture.txt", b"fixture")
+                else:
+                    file.write_bytes(b"fixture")
+            old = Path.cwd()
+            try:
+                os.chdir(root)
+                with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main", "GITHUB_REPOSITORY": "example/repo", "GITHUB_SHA": sha, "RUNNER_TEMP": folder}), patch.object(publish_release, "gh", side_effect=remote), patch.object(publish_release, "api_optional", side_effect=remote_api), patch.object(publish_release, "verify_download") as verify:
+                    publish_release.main()
+                    self.assertEqual(2, verify.call_count)
+                    self.assertEqual(6, len(state["release"]["assets"]))
+                    self.assertFalse(state["release"]["draft"])
+            finally:
+                os.chdir(old)
 
     def test_missing_assets_are_rejected_before_github(self):
         with tempfile.TemporaryDirectory() as folder:
