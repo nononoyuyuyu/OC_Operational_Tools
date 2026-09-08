@@ -27,6 +27,18 @@ def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def find_release(repository, tag):
+    # タグ名のRESTエンドポイントは公開前のdraftを返さない。
+    release = api_optional(f"repos/{repository}/releases/tags/{tag}")
+    if release is not None:
+        return release
+    pages = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repository}/releases?per_page=100"))
+    matches = [release for page in pages for release in page if release["tag_name"] == tag]
+    if len(matches) > 1:
+        raise ValueError("同じタグのReleaseが複数あります。公開処理を停止します。")
+    return matches[0] if matches else None
+
+
 def expected_names(version):
     return {f"OpenCampusOrganizer-{version}-{suffix}" for suffix in [
         "windows-x64-setup.exe", "android.apk", "android-arm64-v8a.apk",
@@ -77,8 +89,7 @@ def main():
     notes += f"\n\n対象コミット: `{sha}`\n\n{marker}\n"
     notes_file = Path(os.environ["RUNNER_TEMP"]) / "oco-release-notes.md"
     notes_file.write_text(notes, encoding="utf-8")
-    endpoint = f"repos/{repository}/releases/tags/{tag}"
-    release = api_optional(endpoint)
+    release = find_release(repository, tag)
     existing_ref = api_optional(f"repos/{repository}/git/ref/tags/{tag}")
     if existing_ref and (existing_ref["object"]["type"] != "commit" or existing_ref["object"]["sha"] != sha):
         raise ValueError("タグが別のコミットまたは既存の注釈付きタグを参照しています。変更しません。")
@@ -97,7 +108,9 @@ def main():
     else:
         # --clobberは使わない。途中の失敗は同じコミット・同じ成果物のdraftだけ再開する。
         gh("release", "create", tag, "--draft", "--target", sha, "--title", f"Open Campus Organizer {version}", "--notes-file", str(notes_file))
-        release = api_optional(endpoint)
+        release = find_release(repository, tag)
+        if release is None:
+            raise ValueError("作成したdraftを取得できません。同じ実行の公開ジョブを再実行してください。")
     existing = {asset["name"]: asset for asset in release["assets"]}
     if set(existing) - set(hashes):
         raise ValueError("draftに想定外の添付ファイルがあります。")
@@ -110,7 +123,7 @@ def main():
     verify_download(tag, hashes)
     gh("release", "edit", tag, "--draft=false", "--latest")
     verify_download(tag, hashes)
-    published = api_optional(endpoint)
+    published = find_release(repository, tag)
     ref = api_optional(f"repos/{repository}/git/ref/tags/{tag}")
     if not published or published["draft"] or published["prerelease"] or not ref or ref["object"]["sha"] != sha:
         raise ValueError("公開状態またはタグのコミットが一致しません。")
