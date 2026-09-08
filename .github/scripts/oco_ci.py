@@ -43,6 +43,10 @@ def pending_release(version, tags):
     return f"v{version}" not in tags and bool(released) and tuple(map(int, version.split("."))) > max(released)
 
 
+def ci_only_change(paths):
+    return all(path.startswith((".github/", "Docs/", "Tests/OpenCampusOrganizer/ci_")) or path in {"README.md", ".gitignore"} for path in paths)
+
+
 def scope(paths):
     targets = set()
     test = False
@@ -116,6 +120,9 @@ def main():
                 continue
         relevant.append(path)
     test, targets, native_android = scope(relevant)
+    # CI定義だけのPRは構文・判定テストで確認し、mainで実行経路を検証する。
+    if kind == "pull_request" and ci_only_change(paths):
+        test, targets, native_android = False, set(), False
     # 公開前のCI修正ではアプリの番号を変えず、まだタグのない最新バージョンを配布する。
     release = kind != "pull_request" and os.environ["GITHUB_REF"] == "refs/heads/main" and (bumped or pending_release(version, tags))
     if release or kind == "workflow_dispatch":
