@@ -175,7 +175,7 @@ class DiscordTransport {
             ..headers.addAll({
               'Authorization': 'Bot $token',
               'User-Agent':
-                  'DiscordBot (https://github.com/nononoyuyuyu/OC_Operational_Tools, 0.4.3)',
+                  'DiscordBot (https://github.com/nononoyuyuyu/OC_Operational_Tools, 0.4.4)',
               if (mutation)
                 'X-Audit-Log-Reason': Uri.encodeComponent(
                   'Open Campus Organizerから${method == 'PUT' ? '付与' : '解除'}',

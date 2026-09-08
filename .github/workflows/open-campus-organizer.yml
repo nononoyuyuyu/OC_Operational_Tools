@@ -11,11 +11,32 @@ permissions:
 
 concurrency:
   group: open-campus-organizer-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  plan:
+    name: 変更範囲・配布番号
+    runs-on: ubuntu-latest
+    outputs:
+      test: ${{ steps.plan.outputs.test }}
+      build: ${{ steps.plan.outputs.build }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      native_android: ${{ steps.plan.outputs.native_android }}
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 Tests/OpenCampusOrganizer/ci_release_test.py
+      - id: plan
+        run: python3 .github/scripts/oco_ci.py
+
   test:
     name: 解析・自動テスト
+    needs: plan
+    if: needs.plan.outputs.test == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -47,21 +68,15 @@ jobs:
 
   build:
     name: ${{ matrix.target }}ビルド
-    needs: test
+    needs: [plan, test]
+    if: needs.plan.outputs.build == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: Windows
-            command: ./tool/build_windows_installer.ps1
-          - os: ubuntu-latest
-            target: Android
-            command: flutter build apk --debug --split-per-abi --no-pub
-          - os: macos-latest
-            target: iOS
-            command: flutter build ios --simulator --no-codesign --no-pub
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    environment: ${{ needs.plan.outputs.release == 'true' && 'release' || 'validation' }}
+    env:
+      PUB_CACHE: ${{ github.workspace }}/.oco-pub-cache
     timeout-minutes: 30
     defaults:
       run:
@@ -95,7 +110,12 @@ jobs:
           $installPath = Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7'
           $process = Start-Process $setup -ArgumentList @('/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS', '/TASKS=""', ('/DIR="' + $installPath + '"')) -WindowStyle Hidden -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw 'Inno Setupの導入失敗' }
-      - run: ${{ matrix.command }}
+      - if: matrix.target == 'Windows'
+        run: ./tool/build_windows_installer.ps1
+      - if: matrix.target == 'iOS'
+        run: flutter build ios --simulator --no-codesign --no-pub
+      - if: matrix.target == 'Android' && (needs.plan.outputs.release != 'true' || needs.plan.outputs.native_android == 'true')
+        run: flutter build apk --debug --split-per-abi --no-pub
       - name: Windowsのテーマアイコンを実ウィンドウで検証
         if: matrix.target == 'Windows'
         shell: pwsh
@@ -106,11 +126,12 @@ jobs:
           & build/windows/x64/appearance_test/Release/oco_appearance_test.exe
           if ($LASTEXITCODE -ne 0) { throw '外観テスト失敗' }
       - name: CPU別APKのビルド番号とABIを検証
-        if: matrix.target == 'Android'
+        if: matrix.target == 'Android' && (needs.plan.outputs.release != 'true' || needs.plan.outputs.native_android == 'true')
         run: python3 ../../Tests/OpenCampusOrganizer/android_apk_version_test.py
-      - name: Androidのアイコン切替テストAPKをコンパイル
-        if: matrix.target == 'Android'
-        run: cd android && ./gradlew :app:assembleDebugAndroidTest --console=plain
+      - name: Androidの起動・テーマ切替・画面復帰を実機相当で検証
+        if: matrix.target == 'Android' && needs.plan.outputs.native_android == 'true'
+        shell: bash
+        run: bash ../../.github/scripts/test_android_lifecycle.sh
       - name: 署名情報のないAndroid Releaseを拒否
         if: matrix.target == 'Android'
         shell: bash
@@ -138,6 +159,9 @@ jobs:
           name: OpenCampusOrganizer-windows-installer
           path: artifacts/release/*/*-windows-x64-setup.exe
           if-no-files-found: error
+      - name: Windowsの配布ペイロードを検査
+        if: matrix.target == 'Windows'
+        run: python ../../.github/scripts/audit_payload.py build/windows/x64/runner/Release
       - name: Windowsの設定・履歴の引き継ぎと削除を検証
         if: matrix.target == 'Windows'
         shell: pwsh
@@ -147,3 +171,56 @@ jobs:
           $testOutput = [IO.Path]::GetFullPath('../../artifacts/userdata-ci-installer')
           & ./tool/build_windows_installer.ps1 -UserDataTestRoot $testRoot -OutputDirectory $testOutput
           & ../../Tests/OpenCampusOrganizer/windows_userdata_test.ps1 -Installer (Join-Path $testOutput 'OpenCampusOrganizer-userdata-test-setup.exe')
+      - name: Android配布APKを署名して検証
+        if: matrix.target == 'Android' && needs.plan.outputs.release == 'true'
+        env:
+          OCO_ANDROID_KEYSTORE_BASE64: ${{ secrets.OCO_ANDROID_KEYSTORE_BASE64 }}
+          OCO_ANDROID_STORE_PASSWORD: ${{ secrets.OCO_ANDROID_STORE_PASSWORD }}
+          OCO_ANDROID_KEY_ALIAS: open-campus-organizer
+        run: python3 ../../.github/scripts/build_android_ci.py
+      - name: Android配布APKを保存
+        if: matrix.target == 'Android' && needs.plan.outputs.release == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: OpenCampusOrganizer-android-release
+          path: artifacts/android-release/*.apk
+          if-no-files-found: error
+
+  gate:
+    name: OCO検証
+    needs: [plan, test, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          PLAN: ${{ needs.plan.result }}
+          TEST: ${{ needs.test.result }}
+          BUILD: ${{ needs.build.result }}
+          NEED_TEST: ${{ needs.plan.outputs.test }}
+          NEED_BUILD: ${{ needs.plan.outputs.build }}
+        run: |
+          test "$PLAN" = success
+          if [ "$NEED_TEST" = true ]; then test "$TEST" = success; else test "$TEST" = skipped; fi
+          if [ "$NEED_BUILD" = true ]; then test "$BUILD" = success; else test "$BUILD" = skipped; fi
+
+  publish:
+    name: Release公開
+    needs: [plan, gate]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: この実行で検証した配布物を取得
+        run: |
+          gh run download "$GITHUB_RUN_ID" -n OpenCampusOrganizer-windows-installer -D dist
+          gh run download "$GITHUB_RUN_ID" -n OpenCampusOrganizer-android-release -D dist
+      - name: 添付ファイルの照合後に公開
+        run: python3 .github/scripts/publish_release.py

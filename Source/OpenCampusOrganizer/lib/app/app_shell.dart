@@ -463,7 +463,7 @@ class _AppShellState extends State<AppShell> {
         ),
         const SizedBox(height: 20),
       ],
-      Text('バージョン 0.4.3', style: Theme.of(context).textTheme.bodySmall),
+      Text('バージョン 0.4.4', style: Theme.of(context).textTheme.bodySmall),
     ],
   );
 
