@@ -1,4 +1,4 @@
-# OC_tools
+# OC_Operational_Tools
 
 オープンキャンパス業務で使用するツールのソースコードとドキュメントを管理するリポジトリです。
 
@@ -14,7 +14,7 @@ Windows・Android・iOSを対象とするFlutterアプリです。ツール一�
 
 - [使い方・ビルド方法](Docs/OpenCampusOrganizer/使い方.md)
 - [インストーラー・APKの配布と作成](Docs/OpenCampusOrganizer/配布.md)
-- [最新版のダウンロード](https://github.com/nononoyuyuyu/OC_tools/releases/latest)
+- [配布ファイル](https://github.com/nononoyuyuyu/OC_Operational_Tools/releases)
 - [構成と機能追加](Docs/OpenCampusOrganizer/設計.md)
 - [機能対応表と検証範囲](Docs/OpenCampusOrganizer/検証.md)
 - [UI調査と設計判断](Docs/OpenCampusOrganizer/UI再設計.md)
@@ -50,3 +50,11 @@ Tests/ツール名/...
 - 変更はブランチ上で行い、PRを作成します。
 - コミットメッセージ、PRタイトル、PR本文は日本語で記載します。
 - 本プロジェクトで新規作成・更新するドキュメントは日本語で記載します。
+
+## mainの保護
+
+- mainへの変更はPRを通します。直接push・強制push・削除は許可しません。
+- GASのテスト、Open Campus Organizerの解析・自動テスト、Windows・Android・iOSビルドを必須チェックにします。文書のみの変更でも全チェックを実行します。
+- 最新のmainに対してチェックが成功し、レビューの指摘スレッドを解決してから、Squashでマージします。一人でも運用できるよう、別の人による承認は必須にしません。
+- Gitの作成者・コミッターメールにはGitHubのnoreplyアドレスを使用します。公開前に、ソースに加えて履歴・ログ・配布物も確認します。
+- GitHubの秘密情報スキャンとpush protectionを有効にします。これらは個人メールやローカルパスの混入をすべて防ぐものではありません。
