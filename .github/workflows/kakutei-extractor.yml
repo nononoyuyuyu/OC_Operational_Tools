@@ -1,6 +1,7 @@
 name: OC Kakutei Extractorの検証
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'Source/OC_KakuteiExtractor/**'
