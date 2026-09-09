@@ -4,12 +4,11 @@
 #include <string>
 #include <shobjidl.h>
 #include <propkey.h>
-#include <propvarutil.h>
 #include <wrl/client.h>
 
 #include "resource.h"
-#include "app_identity.h"
 #include "shortcut_appearance.h"
+#include "taskbar_properties.h"
 
 WindowAppearance::WindowAppearance(HWND window,
                                    flutter::BinaryMessenger* messenger)
@@ -59,7 +58,7 @@ WindowAppearance::~WindowAppearance() {
   if (small_icon_) DestroyIcon(small_icon_);
 }
 
-bool WindowAppearance::SetIcon(int resource_id, UINT dpi) {
+bool WindowAppearance::SetWindowIcons(int resource_id, UINT dpi) {
   const HINSTANCE instance = GetModuleHandleW(nullptr);
   // サイズごとに専用ハンドルを作り、切替後に自分が所有する旧ハンドルだけ解放する。
   const auto next_large_icon = static_cast<HICON>(LoadImageW(
@@ -83,49 +82,37 @@ bool WindowAppearance::SetIcon(int resource_id, UINT dpi) {
   if (small_icon_) DestroyIcon(small_icon_);
   large_icon_ = next_large_icon;
   small_icon_ = next_small_icon;
+  return true;
+}
+
+bool WindowAppearance::SetIcon(int resource_id, UINT dpi) {
+  if (!SetWindowIcons(resource_id, dpi)) return false;
   resource_id_ = resource_id;
-  if (!UpdateTaskbarIcon(resource_id)) return false;
   wchar_t executable[32768];
   const DWORD length = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
   if (!length || length >= ARRAYSIZE(executable)) return false;
+  // グループが参照するリンクを先に保存し、通知の配達を終えてから公開する。
   const bool shortcuts_updated = UpdateUserAppearanceShortcuts(executable, resource_id);
-  // Explorerが保持するグループ表示も再取得させる。ウィンドウ自体は隠さない。
-  if (IsWindowVisible(window_)) {
-    Microsoft::WRL::ComPtr<ITaskbarList> taskbar;
-    if (SUCCEEDED(CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER,
-                                  IID_PPV_ARGS(&taskbar))) && SUCCEEDED(taskbar->HrInit())) {
-      if (SUCCEEDED(taskbar->DeleteTab(window_))) taskbar->AddTab(window_);
-    }
-  }
-  return shortcuts_updated;
+  // 一部リンクが書込不可でも実行中ウィンドウの更新と再試行経路は維持する。
+  const bool taskbar_updated = UpdateTaskbarIcon(resource_id);
+  // DeleteTab/AddTabでは既存グループのキャッシュ更新を保証できない。
+  // 明示IDの再通知を使い、ボタンの削除・追加やウィンドウの非表示は行わない。
+  return shortcuts_updated && taskbar_updated;
 }
 
 void WindowAppearance::RefreshForDpi(UINT dpi) {
-  SetIcon(resource_id_, dpi);
+  // DPI変更でリンクを再走査・再保存したり、タスクバーの所属を変更したりしない。
+  SetWindowIcons(resource_id_, dpi);
 }
 
 bool WindowAppearance::UpdateTaskbarIcon(int resource_id) {
-  // WM_SETICONだけではショートカット由来のグループアイコンが残る。
-  // ウィンドウとインストーラーのAppUserModelIDを一致させ、参照リソースも更新する。
   Microsoft::WRL::ComPtr<IPropertyStore> properties;
   if (FAILED(SHGetPropertyStoreForWindow(window_, IID_PPV_ARGS(&properties)))) return false;
   wchar_t executable[32768];
   const DWORD length = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
   if (!length || length >= ARRAYSIZE(executable)) return false;
-  auto set = [&](const PROPERTYKEY& key, const std::wstring& text) {
-    PROPVARIANT value{};
-    HRESULT status = InitPropVariantFromString(text.c_str(), &value);
-    if (SUCCEEDED(status)) status = properties->SetValue(key, value);
-    PropVariantClear(&value);
-    return SUCCEEDED(status);
-  };
-  const std::wstring path(executable, length);
-  return set(PKEY_AppUserModel_RelaunchCommand, L"\"" + path + L"\"") &&
-         set(PKEY_AppUserModel_RelaunchDisplayNameResource,
-             L"@" + path + L",-" + std::to_wstring(IDS_APP_NAME)) &&
-         set(PKEY_AppUserModel_RelaunchIconResource,
-             path + L",-" + std::to_wstring(resource_id)) &&
-         set(PKEY_AppUserModel_ID, kAppUserModelId);
+  return SetTaskbarAppearanceProperties(properties.Get(),
+                                       std::wstring(executable, length), resource_id);
 }
 
 void WindowAppearance::ClearTaskbarProperties() {

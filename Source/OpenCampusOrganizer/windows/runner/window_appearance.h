@@ -15,6 +15,7 @@ class WindowAppearance {
 
  private:
   bool SetIcon(int resource_id, UINT dpi);
+  bool SetWindowIcons(int resource_id, UINT dpi);
   bool UpdateTaskbarIcon(int resource_id);
   void ClearTaskbarProperties();
   HWND window_;

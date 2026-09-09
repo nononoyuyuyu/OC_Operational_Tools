@@ -19,7 +19,6 @@ bool UpdateLink(const std::filesystem::path& path,
   // Resolveはリンク先へのアクセスやダイアログを起こすため使わない。
   if (FAILED(link->GetPath(target, ARRAYSIZE(target), nullptr, SLGP_RAWPATH)) ||
       _wcsicmp(target, executable.c_str()) != 0) return true;
-  if (FAILED(file->Load(path.c_str(), STGM_READWRITE))) return false;
   wchar_t icon[32768]{};
   int index = 0;
   Microsoft::WRL::ComPtr<IPropertyStore> properties;
@@ -35,7 +34,13 @@ bool UpdateLink(const std::filesystem::path& path,
   if (SUCCEEDED(link->GetIconLocation(icon, ARRAYSIZE(icon), &index)) &&
       _wcsicmp(icon, executable.c_str()) == 0 && index == -resource_id &&
       read(PKEY_AppUserModel_ID) == kAppUserModelId &&
-      read(PKEY_AppUserModel_RelaunchIconResource) == relaunch_icon) return true;
+      read(PKEY_AppUserModel_RelaunchIconResource) == relaunch_icon) {
+    // 前回の通知直後に再試行した場合も、配達を終えてからウィンドウを更新する。
+    SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSH, path.c_str(), nullptr);
+    return true;
+  }
+  // 変更不要な読取専用リンクは成功とし、書換えが必要な場合だけ書込権限を要求する。
+  if (FAILED(file->Load(path.c_str(), STGM_READWRITE))) return false;
   const auto set = [&](const PROPERTYKEY& key, const wchar_t* text) {
     PROPVARIANT value{};
     HRESULT status = InitPropVariantFromString(text, &value);
@@ -48,7 +53,7 @@ bool UpdateLink(const std::filesystem::path& path,
       !set(PKEY_AppUserModel_ID, kAppUserModelId) || FAILED(properties->Commit())) return false;
   if (FAILED(link->SetIconLocation(executable.c_str(), -resource_id)) ||
       FAILED(file->Save(path.c_str(), TRUE))) return false;
-  SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSHNOWAIT, path.c_str(), nullptr);
+  SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSH, path.c_str(), nullptr);
   return true;
 }
 }
@@ -56,7 +61,7 @@ bool UpdateLink(const std::filesystem::path& path,
 bool UpdateAppearanceShortcuts(const std::filesystem::path& directory,
                                const std::wstring& executable, int resource_id, int max_depth) {
   std::error_code error;
-  if (!std::filesystem::exists(directory, error)) return true;
+  if (!std::filesystem::exists(directory, error)) return !error;
   bool success = true;
   std::filesystem::recursive_directory_iterator iterator(
       directory, std::filesystem::directory_options::skip_permission_denied, error), end;

@@ -21,9 +21,12 @@ class LauncherAppearanceTest {
         try {
             val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(context.packageName)
             val icons = mutableSetOf<Int>()
-            repeat(2) {
+            repeat(3) {
                 for (theme in LauncherAppearance.THEMES) {
-                    instrumentation.runOnMainSync { LauncherAppearance.applyTheme(context, theme) }
+                    // 同じ色の再送も含め、2回目以降の切替で入口を増減させない。
+                    instrumentation.runOnMainSync {
+                        repeat(2) { LauncherAppearance.applyTheme(context, theme) }
+                    }
                     val activities = manager.queryIntentActivities(intent, 0)
                     assertEquals("公開する起動アイコンは1個", 1, activities.size)
                     val activity = activities.single().activityInfo
