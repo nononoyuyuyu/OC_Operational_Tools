@@ -25,16 +25,10 @@ void main() {
       final client = _StreamClient((request) async {
         final abortable = request as http.AbortableRequest;
         unawaited(abortable.abortTrigger!.then((_) => aborted.complete()));
-        return http.StreamedResponse(
-          body(),
-          200,
-          contentLength: advertised,
-        );
+        return http.StreamedResponse(body(), 200, contentLength: advertised);
       });
-      final transport = DiscordTransport(
-        client: client,
-        maxResponseBytes: 64,
-      )..authenticate('fixture-only');
+      final transport = DiscordTransport(client: client, maxResponseBytes: 64)
+        ..authenticate('fixture-only');
       addTearDown(transport.dispose);
       await expectLater(
         transport.request('GET', '/users/@me', Cancellation()),
@@ -88,10 +82,9 @@ void main() {
       maxResponseBytes: bytes.length,
     )..authenticate('fixture-only');
     addTearDown(transport.dispose);
-    expect(
-      await transport.request('GET', '/users/@me', Cancellation()),
-      {'name': '日本語'},
-    );
+    expect(await transport.request('GET', '/users/@me', Cancellation()), {
+      'name': '日本語',
+    });
   });
 
   test('更新応答の超過は未確認とし再送せず、次の要求を妨げない', () async {
@@ -99,10 +92,7 @@ void main() {
     final transport = DiscordTransport(
       client: _StreamClient(
         (_) async => ++calls == 1
-            ? http.StreamedResponse(
-                Stream.value(utf8.encode('秘密' * 30)),
-                200,
-              )
+            ? http.StreamedResponse(Stream.value(utf8.encode('秘密' * 30)), 200)
             : http.StreamedResponse(Stream.value([123, 125]), 200),
       ),
       maxResponseBytes: 64,

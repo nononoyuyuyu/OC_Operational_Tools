@@ -21,10 +21,10 @@ void main() {
         }),
       )..authenticate('fixture-only');
       addTearDown(transport.dispose);
-      final group = transport.readBatch(
-        ['/guilds/1', '/guilds/1/roles'],
-        Cancellation(),
-      );
+      final group = transport.readBatch([
+        '/guilds/1',
+        '/guilds/1/roles',
+      ], Cancellation());
       final checked = expectLater(group, throwsA(isA<AppFailure>()));
       await started.future;
       await Future<void>.delayed(Duration.zero);
@@ -107,7 +107,10 @@ void main() {
     final request = transport.request('GET', '/users/@me', Cancellation());
     transport.dispose();
     transport.dispose();
-    expect(() => transport.authenticate('fixture-only'), throwsA(isA<AppFailure>()));
+    expect(
+      () => transport.authenticate('fixture-only'),
+      throwsA(isA<AppFailure>()),
+    );
     await expectLater(request, throwsA(isA<AppFailure>()));
     expect(calls, 0);
   });
