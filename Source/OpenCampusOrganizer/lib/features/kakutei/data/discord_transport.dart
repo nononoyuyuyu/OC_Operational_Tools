@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../../core/failure.dart';
+import 'bounded_response.dart';
 
 class DiscordTransport {
   DiscordTransport({
@@ -9,13 +10,21 @@ class DiscordTransport {
     Future<void> Function(Duration, Cancellation)? wait,
     DateTime Function()? now,
     this.parallelReads = true,
+    this.maxResponseBytes = 8 * 1024 * 1024,
   }) : _client = client ?? http.Client(),
        _wait = wait ?? ((d, c) => c.wait(d)),
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now {
+    if (maxResponseBytes <= 0) {
+      throw ArgumentError.value(maxResponseBytes, 'maxResponseBytes');
+    }
+  }
   final http.Client _client;
   final Future<void> Function(Duration, Cancellation) _wait;
   final bool parallelReads;
+  final int maxResponseBytes;
   String? _token;
+  int _session = 0;
+  bool _disposed = false;
   Future<void> _tail = Future.value();
   int _pending = 0;
   final DateTime Function() _now;
@@ -71,25 +80,36 @@ class DiscordTransport {
   }
 
   void authenticate(String token) {
+    if (_disposed) throw const AppFailure('終了済みの接続は使用できません。');
     final value = token.trim();
     if (value.isEmpty || value.length > 512 || RegExp(r'\s').hasMatch(value)) {
       throw const AppFailure('Bot Tokenを入力してください。');
     }
+    _session++;
     _token = value;
   }
 
   void disconnect() {
+    _session++;
     _token = null;
   }
 
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     disconnect();
     _client.close();
   }
 
+  void _requireSession(String token, int session) {
+    if (_disposed || _session != session || _token != token) {
+      throw const AppFailure('接続が変更されました。再接続してください。');
+    }
+  }
+
   Future<T> _enqueue<T>(
     Cancellation cancel,
-    Future<T> Function(String token) run,
+    Future<T> Function(String token, int session) run,
   ) {
     if (_pending >= 128) {
       return Future<T>.error(
@@ -99,13 +119,15 @@ class DiscordTransport {
     _pending++;
     final result = Completer<T>();
     final tokenAtEnqueue = _token;
+    final session = _session;
     _tail = _tail.then((_) async {
       try {
         cancel.check();
-        if (tokenAtEnqueue == null || _token != tokenAtEnqueue) {
+        if (tokenAtEnqueue == null) {
           throw const AppFailure('Discordに接続してください。');
         }
-        result.complete(await run(tokenAtEnqueue));
+        _requireSession(tokenAtEnqueue, session);
+        result.complete(await run(tokenAtEnqueue, session));
       } catch (error, stack) {
         result.completeError(error, stack);
       } finally {
@@ -120,7 +142,15 @@ class DiscordTransport {
     String path,
     Cancellation cancel, {
     Map<String, String>? query,
-  }) => _enqueue(cancel, (token) => _send(method, path, query, cancel, token));
+  }) {
+    final snapshot = query == null
+        ? null
+        : Map<String, String>.unmodifiable(query);
+    return _enqueue(
+      cancel,
+      (token, session) => _send(method, path, snapshot, cancel, token, session),
+    );
+  }
 
   /// An explicit, bounded read group; normal requests and all writes remain
   /// FIFO barriers. A failed group drains every reader before releasing it.
@@ -129,7 +159,7 @@ class DiscordTransport {
       throw ArgumentError.value(paths.length, 'paths', 'Expected 1 to 3 GETs');
     }
     final snapshot = List<String>.unmodifiable(paths);
-    return _enqueue(cancel, (token) async {
+    return _enqueue(cancel, (token, session) async {
       final buckets = snapshot.map((path) {
         final route = _route('GET', path);
         return _routes[route] ?? route;
@@ -139,13 +169,21 @@ class DiscordTransport {
       if (!parallelReads || buckets.length != snapshot.length) {
         final values = <Object?>[];
         for (final path in snapshot) {
-          values.add(await _send('GET', path, null, cancel, token));
+          values.add(await _send('GET', path, null, cancel, token, session));
         }
         return values;
       }
       return Future.wait([
         for (final path in snapshot)
-          _send('GET', path, null, cancel, token, concurrentRead: true),
+          _send(
+            'GET',
+            path,
+            null,
+            cancel,
+            token,
+            session,
+            concurrentRead: true,
+          ),
       ]);
     });
   }
@@ -155,16 +193,22 @@ class DiscordTransport {
     String path,
     Map<String, String>? query,
     Cancellation cancel,
-    String token, {
+    String token,
+    int session, {
     bool concurrentRead = false,
   }) async {
     final mutation = method != 'GET';
     final route = _route(method, path);
     for (var attempt = 0; attempt < 6; attempt++) {
+      _requireSession(token, session);
       await _throttle(route, cancel, recheck: concurrentRead);
       cancel.check();
-      if (_token != token) throw const AppFailure('接続が変更されました。再接続してください。');
+      _requireSession(token, session);
       final abort = Completer<void>();
+      void abortRequest() {
+        if (!abort.isCompleted) abort.complete();
+      }
+
       final request =
           http.AbortableRequest(
               method,
@@ -175,7 +219,7 @@ class DiscordTransport {
             ..headers.addAll({
               'Authorization': 'Bot $token',
               'User-Agent':
-                  'DiscordBot (https://github.com/nononoyuyuyu/OC_Operational_Tools, 0.4.5)',
+                  'DiscordBot (https://github.com/nononoyuyuyu/OC_Operational_Tools, 0.4.6)',
               if (mutation)
                 'X-Audit-Log-Reason': Uri.encodeComponent(
                   'Open Campus Organizerから${method == 'PUT' ? '付与' : '解除'}',
@@ -185,14 +229,25 @@ class DiscordTransport {
       try {
         response = await _client
             .send(request)
-            .then(http.Response.fromStream)
+            .then(
+              (response) => readBoundedResponse(
+                response,
+                maxBytes: maxResponseBytes,
+                abort: abortRequest,
+              ),
+            )
             .timeout(
               const Duration(seconds: 25),
               onTimeout: () {
-                abort.complete();
+                abortRequest();
                 throw TimeoutException('request timeout');
               },
             );
+      } on ResponseTooLarge {
+        throw AppFailure(
+          'Discordの応答がサイズ上限を超えたため停止しました。取得条件を確認してください。',
+          uncertain: mutation,
+        );
       } catch (_) {
         // レスポンス・HTTP例外には機密情報が含まれ得るため、そのまま表示・保存しない。
         throw AppFailure(
@@ -203,6 +258,9 @@ class DiscordTransport {
           retryable: true,
         );
       }
+      // 古い読取結果は破棄する。送信済みの更新の成功応答は記録のため保持する。
+      if (!mutation) _requireSession(token, session);
+      final currentSession = _session == session && _token == token;
       Object? data;
       if (response.bodyBytes.isNotEmpty) {
         try {
@@ -213,7 +271,7 @@ class DiscordTransport {
       }
       var bucket = _routes[route] ?? route;
       final bucketId = response.headers['x-ratelimit-bucket'];
-      if (bucketId != null) {
+      if (currentSession && bucketId != null) {
         final parts = path.split('/');
         final major =
             parts.length > 2 && (parts[1] == 'guilds' || parts[1] == 'channels')
@@ -230,6 +288,7 @@ class DiscordTransport {
         _routes[route] = bucket;
       }
       if (response.statusCode == 429) {
+        _requireSession(token, session);
         final raw = data is Map ? data['retry_after'] : null;
         final bodySeconds = raw is num ? raw.toDouble() : 0.0;
         final headerSeconds =
@@ -237,17 +296,10 @@ class DiscordTransport {
         final seconds = bodySeconds > headerSeconds
             ? bodySeconds
             : headerSeconds;
-        if (!seconds.isFinite ||
-            seconds <= 0 ||
-            seconds > 300 ||
-            attempt == 5) {
-          throw AppFailure(
+        if (!seconds.isFinite || seconds <= 0 || seconds > 300) {
+          throw const AppFailure(
             'Discordの利用制限に達しました。時間をおいて再度確認してください。',
             status: 429,
-            retryable: seconds.isFinite && seconds > 0 && seconds <= 300,
-            retryAfter: seconds.isFinite && seconds > 0 && seconds <= 300
-                ? Duration(milliseconds: (seconds * 1000).ceil() + 50)
-                : null,
           );
         }
         final delay = Duration(milliseconds: (seconds * 1000).ceil() + 50);
@@ -261,9 +313,18 @@ class DiscordTransport {
         } else {
           _block(bucket, delay);
         }
+        // この要求の再試行を終えても、次の要求に対する制限は消さない。
+        if (attempt == 5) {
+          throw AppFailure(
+            'Discordの利用制限に達しました。時間をおいて再度確認してください。',
+            status: 429,
+            retryable: true,
+            retryAfter: delay,
+          );
+        }
         continue;
       }
-      if (response.headers['x-ratelimit-remaining'] == '0') {
+      if (currentSession && response.headers['x-ratelimit-remaining'] == '0') {
         final seconds =
             double.tryParse(
               response.headers['x-ratelimit-reset-after'] ?? '',
@@ -276,7 +337,7 @@ class DiscordTransport {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         if (method == 'GET') {
           cancel.check();
-          if (_token != token) throw const AppFailure('接続が変更されました。再接続してください。');
+          _requireSession(token, session);
           if (data == null) throw const AppFailure('Discordの応答を読み取れませんでした。');
         }
         return data;
