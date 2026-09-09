@@ -17,29 +17,29 @@ class RecordingTaskbarProperties final
   HRESULT STDMETHODCALLTYPE GetAt(DWORD, PROPERTYKEY*) override { return E_NOTIMPL; }
   HRESULT STDMETHODCALLTYPE GetValue(REFPROPERTYKEY, PROPVARIANT*) override { return E_NOTIMPL; }
   HRESULT STDMETHODCALLTYPE Commit() override { return S_OK; }
-  HRESULT STDMETHODCALLTYPE SetValue(REFPROPERTYKEY key, REFPROPVARIANT value) override {
+  HRESULT STDMETHODCALLTYPE SetValue(REFPROPERTYKEY key, REFPROPVARIANT property_value) override {
     if (fail_icon && IsEqualPropertyKey(key, PKEY_AppUserModel_RelaunchIconResource)) return E_FAIL;
     if (IsEqualPropertyKey(key, PKEY_AppUserModel_ID)) {
-      if (value.vt == VT_EMPTY) {
+      if (property_value.vt == VT_EMPTY) {
         identity.clear();
         writes.push_back(L"clear");
         return S_OK;
       }
-      if (value.vt != VT_LPWSTR) return E_INVALIDARG;
-      if (identity != value.pwszVal) {
+      if (property_value.vt != VT_LPWSTR) return E_INVALIDARG;
+      if (identity != property_value.pwszVal) {
         published_icon = icon;
         ++refreshes;
       }
-      identity = value.pwszVal;
+      identity = property_value.pwszVal;
       writes.push_back(L"publish");
     } else {
-      if (value.vt != VT_LPWSTR) return E_INVALIDARG;
+      if (property_value.vt != VT_LPWSTR) return E_INVALIDARG;
       if (IsEqualPropertyKey(key, PKEY_AppUserModel_RelaunchCommand)) {
         writes.push_back(L"command");
       } else if (IsEqualPropertyKey(key, PKEY_AppUserModel_RelaunchDisplayNameResource)) {
         writes.push_back(L"name");
       } else if (IsEqualPropertyKey(key, PKEY_AppUserModel_RelaunchIconResource)) {
-        icon = value.pwszVal;
+        icon = property_value.pwszVal;
         writes.push_back(L"icon");
       }
     }
