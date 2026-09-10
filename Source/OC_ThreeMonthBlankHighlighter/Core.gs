@@ -1,5 +1,5 @@
 /**
- * OC_ThreeMonthBlankHighlighter v2: 副作用を持たない判定エンジン。
+ * OC_ThreeMonthBlankHighlighter v2.1: 副作用を持たない判定エンジン。
  * トップレベルには関数宣言だけを置き、既存GASと名前空間を分離する。
  */
 function ocBlank3mV2Core_() {
@@ -60,6 +60,21 @@ function ocBlank3mV2Core_() {
     return day(year, month, Math.min(start.day, lastDay));
   }
 
+  function monthIndex(value) { return value.year * 12 + value.month - 1; }
+
+  function monthBoundary(index, last) {
+    var year = Math.floor(index / 12), month = index % 12 + 1;
+    return day(year, month, last ? new Date(Date.UTC(year, month, 0)).getUTCDate() : 1);
+  }
+
+  function windowFor(today) {
+    var current = monthIndex(today);
+    var countThrough = monthBoundary(current - 1, true);
+    var reviewThrough = monthBoundary(current, true);
+    if (!countThrough || !reviewThrough) fail('集計対象月を確定できません。基準日を確認してください。');
+    return { currentMonth: current, countThrough: countThrough, reviewThrough: reviewThrough };
+  }
+
   function cell(row, column) {
     var letters = '';
     for (var n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) {
@@ -111,27 +126,47 @@ function ocBlank3mV2Core_() {
     });
     if (dates.length > limit) fail('日付列数が上限の' + limit + '列を超えています。');
     dates.sort(function (a, b) { return a.date.key - b.date.key; });
-    var past = dates.filter(function (item) { return item.date.key <= today.key; });
-    if (!past.length) fail('基準日以前の日付列がありません。背景表示は変更しません。');
-    return { past: past, futureCount: dates.length - past.length };
+    var window = windowFor(today);
+    // 当月は月数に加算しないが、未来の日付も記入有無の確認には含める。
+    var reviewed = dates.filter(function (item) { return item.date.key <= window.reviewThrough.key; });
+    if (!reviewed.length) fail('当月末以前の日付列がありません。背景表示は変更しません。');
+    return { reviewed: reviewed, futureCount: dates.length - reviewed.length, window: window };
   }
 
-  // 最新列から逆走し、最後の非空欄より後の区間だけを評価する。
-  // 過去区間の達成時点で早期に「該当」と返してはならない。
-  function trailing(row, dates, registration, months) {
-    var eligible = dates.filter(function (item) { return item.date.key >= registration.key; });
-    if (!eligible.length) return null;
-    var i = eligible.length - 1;
-    while (i >= 0 && blank(row[eligible[i].column])) i -= 1;
-    if (i === eligible.length - 1) return null;
-    var start = i < 0 ? registration : eligible[i + 1].date;
-    var end = eligible[eligible.length - 1].date;
-    var threshold = addMonths(start, months);
-    if (!threshold || end.key < threshold.key) return null;
-    return { start: start.text, end: end.text, threshold: threshold.text };
+  // 登録月の翌月から先月までの末尾連続月を数える。
+  // 日付列のない月は空欄と断定せず、非空欄の月と同様に連続区間を中断する。
+  function completedMonths(row, dates, registration, today) {
+    var firstMonth = monthIndex(registration) + 1, current = monthIndex(today);
+    var buckets = Object.create(null);
+    dates.forEach(function (item) {
+      var month = monthIndex(item.date);
+      if (month < firstMonth || month > current) return;
+      if (!buckets[month]) buckets[month] = { nonblank: false };
+      if (!blank(row[item.column])) buckets[month].nonblank = true;
+    });
+    var count = 0;
+    for (var month = current - 1; month >= firstMonth; month -= 1) {
+      if (!buckets[month] || buckets[month].nonblank) break;
+      count += 1;
+    }
+    return { monthCount: count,
+      start: count ? monthBoundary(current - count, false).text : null,
+      end: monthBoundary(current - 1, true).text,
+      currentMonthHasValue: !!(buckets[current] && buckets[current].nonblank) };
+  }
+
+  function trailing(row, dates, registration, months, today) {
+    if (!today) fail('月単位判定には基準日が必要です。Core.gsとCode.gsを同じ版へ更新してください。');
+    if (registration.key > today.key) return null;
+    var status = completedMonths(row, dates, registration, today);
+    if (status.currentMonthHasValue || status.monthCount < months) return null;
+    var startMonth = monthIndex(today) - status.monthCount;
+    return { start: status.start, end: status.end,
+      threshold: monthBoundary(startMonth + months - 1, true).text, monthCount: status.monthCount };
   }
 
   function analyze(input, config, formatDate) {
+    if (config.version !== '2.1') fail('Core.gsとCode.gsの版が異なります。両方を最新版へ更新してください。');
     var matrix = input.matrix, location = input.location;
     var columns = dateColumns(input.rawHeaders, matrix[location.row - 1], location,
       input.timeZone, input.today, formatDate, config.maxDateColumns);
@@ -147,23 +182,24 @@ function ocBlank3mV2Core_() {
       var address = cell(rowNumber, location.registrationColumn);
       var status = blank(raw) ? '登録日空欄' : !registration ? '登録日不正' :
         registration.key > input.today.key ? '登録日が未来' : '';
-      var eligible = registration ? columns.past.filter(function (item) {
-        return item.date.key >= registration.key;
+      var eligible = registration ? columns.reviewed.filter(function (item) {
+        return monthIndex(item.date) > monthIndex(registration);
       }) : [];
-      if (!status && !eligible.length) status = '登録後の対象日付なし';
+      if (!status && !eligible.length) status = '登録翌月以降の対象日付なし';
       var blankFlags = eligible.map(function (item) { return blank(row[item.column]); });
-      // 個人識別子や氏名は保存・表示せず、判定に必要な情報だけを照合する。
+      // 当月の未来日への記入も、確認中の変更検知に必ず含める。
       fingerprint.push([rowNumber, registration ? registration.text : status, blankFlags]);
       if (status) { skipped.push({ cell: address, reason: status }); continue; }
-      var streak = trailing(row, eligible, registration, config.months);
+      var streak = trailing(row, eligible, registration, config.months, input.today);
       if (streak) matches.push({ row: rowNumber, cell: address, start: streak.start,
-        end: streak.end, threshold: streak.threshold });
+        end: streak.end, threshold: streak.threshold, monthCount: streak.monthCount });
     }
     return { matches: matches, skipped: skipped, students: students, location: location,
-      today: input.today.text, latest: columns.past[columns.past.length - 1].date.text,
+      today: input.today.text, latest: columns.reviewed[columns.reviewed.length - 1].date.text,
+      countThrough: columns.window.countThrough.text, reviewThrough: columns.window.reviewThrough.text,
       futureCount: columns.futureCount,
-      fingerprint: JSON.stringify([input.today.text, input.timeZone, matrix.length, location,
-        columns.past.map(function (item) { return [item.column, item.date.text]; }), fingerprint]) };
+      fingerprint: JSON.stringify(['calendar-month-v1', input.today.text, input.timeZone, matrix.length, location,
+        columns.reviewed.map(function (item) { return [item.column, item.date.text]; }), fingerprint]) };
   }
 
   // 連続する登録日セルをまとめ、サービス呼び出しを学生数分発生させない。
@@ -178,7 +214,8 @@ function ocBlank3mV2Core_() {
     return result.map(function (item) { return cell(item.start, column) + ':' + cell(item.end, column); });
   }
 
-  return { fail: fail, blank: blank, header: header, day: day, parseDate: parseDate,
-    addMonths: addMonths, cell: cell, findHeader: findHeader, dateColumns: dateColumns,
+  return { version: '2.1', fail: fail, blank: blank, header: header, day: day, parseDate: parseDate,
+    addMonths: addMonths, monthIndex: monthIndex, monthBoundary: monthBoundary, windowFor: windowFor,
+    cell: cell, findHeader: findHeader, dateColumns: dateColumns, completedMonths: completedMonths,
     trailing: trailing, analyze: analyze, segments: segments };
 }
