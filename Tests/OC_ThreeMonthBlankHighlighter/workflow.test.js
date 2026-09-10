@@ -4,18 +4,20 @@ const assert = require('node:assert/strict');
 const { load, utilities, plain } = require('./helpers');
 
 function environment(options = {}) {
-  let now = '2026-09-10T15:00:00Z';
+  let now = options.now || '2026-09-10T15:00:00Z';
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } }
   const s = { alerts: [], writes: [], reads: 0, ruleReads: 0, flushes: 0, locked: false, releases: 0,
     backgrounds: { A3: '#ffeeaa', A4: '#ff0000' } };
-  s.headers = ['登録・\n更新日', '学籍番号', '名前', '4/19', '7/01', '8/30', '9/13'];
-  s.matrix = [Array(7).fill(''), s.headers,
-    ['2026/04/01', 'PERSONAL-ID1', '個人情報氏名1', '', '', '', '予定'],
-    ['2026/04/01', 'PERSONAL-ID2', '個人情報氏名2', '', '', '〇', '']];
-  s.registrations = [['2026/04/01'], ['2026/04/01']];
+  // 物理順が異なる5・6月列を追加。当月9/13は空欄、翌月10/1の予定は無視する。
+  s.headers = ['登録・\n更新日', '学籍番号', '名前', '4/19', '7/01', '8/30', '9/13', '5/10', '6/07', '10/01'];
+  s.matrix = [Array(10).fill(''), s.headers,
+    ['2026/04/05', 'PERSONAL-ID1', '個人情報氏名1', '', '', '', '', '', '', '予定'],
+    ['2026/04/05', 'PERSONAL-ID2', '個人情報氏名2', '', '', '〇', '', '', '', '']];
+  s.registrations = [['2026/04/05'], ['2026/04/05']];
   s.rawHeaders = ['登録・\n更新日', '学籍番号', '名前',
     new Date('2026-04-18T15:00Z'), new Date('2026-06-30T15:00Z'),
-    new Date('2026-08-29T15:00Z'), new Date('2026-09-12T15:00Z')];
+    new Date('2026-08-29T15:00Z'), new Date('2026-09-12T15:00Z'),
+    new Date('2026-05-09T15:00Z'), new Date('2026-06-06T15:00Z'), new Date('2026-09-30T15:00Z')];
   function range(a1, row, column, countRows, countColumns) {
     const canonical = a1 ? a1.replace(/^([A-Z]+\d+):\1$/, '$1') : `${row}:${column}:${countRows}:${countColumns}`;
     return { getSheet: () => sheet, getA1Notation: () => canonical,
@@ -86,6 +88,7 @@ function environment(options = {}) {
       s.alerts.push({ title, message, buttons });
       if (buttons === 'YES_NO' && options.onConfirm) options.onConfirm(s);
       if (buttons === 'YES_NO' && options.nextDay) now = '2026-09-11T15:00:00Z';
+      if (buttons === 'YES_NO' && options.nextInstant) now = options.nextInstant;
       return options.cancel ? 'NO' : 'YES';
     } };
   const ctx = load({ Date: Clock, Utilities: utilities,
@@ -210,4 +213,37 @@ test('復元失敗は成功と報告しない', () => {
 test('状態読取失敗時は復元できたと偽らない', () => {
   const s = environment({ failRecoveryRead: true }); s.run(); assert.equal(s.writes.length, 1);
   assert(s.alerts.at(-1).message.includes('確認できません'));
+});
+
+test('提示3例を同じシートで判定し1例目だけを赤表示', () => {
+  const s = environment();
+  s.registrations[1][0] = '2026/06/01'; s.matrix[3][5] = '';
+  s.matrix.push(['2026/04/05', 'PERSONAL-ID3', '個人情報氏名3', '', '', '', '〇', '', '', '']);
+  s.registrations.push(['2026/04/05']);
+  s.run();
+  assert.deepEqual(plain(s.rules[0].addresses), ['A3']);
+  assert(s.alerts[0].message.includes('2026/08/31（先月末）'));
+  assert(s.alerts[0].message.includes('2026/09/30（当月末）'));
+  assert(s.alerts[0].message.includes('2026/05/01～2026/08/31（連続4か月）'));
+});
+test('当月の未来日への記入を再実行すると専用赤表示を解除', () => {
+  const s = environment(); s.run(); s.matrix[2][6] = '予定'; s.run();
+  assert.equal(s.writes.length, 2); assert.deepEqual(s.rules, s.userRules);
+});
+test('確認中の当月未来日の変更も無変更で停止', () => {
+  const s = environment({ onConfirm: state => { state.matrix[2][6] = '予定'; } }); s.run();
+  assert.equal(s.writes.length, 0); assert(s.alerts.at(-1).message.includes('確認中'));
+});
+test('確認中の翌月の予定変更は対象外なので継続', () => {
+  const s = environment({ onConfirm: state => { state.matrix[2][9] = '変更'; } }); s.run();
+  assert.equal(s.writes.length, 1);
+});
+test('シート時間で月をまたぐ確認は再実行を要求', () => {
+  const s = environment({ now: '2026-09-30T14:59:59Z', nextInstant: '2026-09-30T15:00:00Z' }); s.run();
+  assert.equal(s.writes.length, 0); assert(s.alerts.at(-1).message.includes('確認中'));
+});
+test('旧Coreと新Codeの混在では書き込まない', () => {
+  const s = environment(); const getCore = s.ctx.ocBlank3mV2Core_;
+  s.ctx.ocBlank3mV2Core_ = () => ({ ...getCore(), version: undefined });
+  s.run(); assert.equal(s.writes.length, 0); assert(s.alerts[0].message.includes('版が異なります'));
 });

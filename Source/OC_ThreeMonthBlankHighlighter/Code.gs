@@ -1,6 +1,6 @@
 /**
  * @OnlyCurrentDoc
- * OC_ThreeMonthBlankHighlighter v2。登録日セルに専用の条件付き書式を設定する。
+ * OC_ThreeMonthBlankHighlighter v2.1。登録日セルに専用の条件付き書式を設定する。
  * セル値・元背景色・フィルタ・非表示行・行グループは変更しない。
  */
 function runOC_ThreeMonthBlankHighlighter() {
@@ -13,7 +13,7 @@ function previewOC_ThreeMonthBlankHighlighter() {
 }
 
 function ocBlank3mV2Config_() {
-  return { title: 'OC_ThreeMonthBlankHighlighter', sheet: '学生情報一覧', months: 3,
+  return { title: 'OC_ThreeMonthBlankHighlighter', version: '2.1', sheet: '学生情報一覧', months: 3,
     maxStudents: 1000, maxDateColumns: 300, maxReadCells: 500000, maxRules: 1000,
     color: '#ff0000', formula: '=N("OC_ThreeMonthBlankHighlighter:v2")=0' };
 }
@@ -22,6 +22,7 @@ function ocBlank3mV2Run_(previewOnly) {
   var core = ocBlank3mV2Core_(), config = ocBlank3mV2Config_();
   var ui = SpreadsheetApp.getUi(), lock = null, resultMessage = '';
   try {
+    if (core.version !== config.version) core.fail('Core.gsとCode.gsの版が異なります。両方を最新版へ更新してください。');
     var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     if (!spreadsheet) core.fail('対象スプレッドシートから実行してください。');
     var initial = ocBlank3mV2Read_(spreadsheet, config);
@@ -82,17 +83,18 @@ function ocBlank3mV2Read_(spreadsheet, config) {
 function ocBlank3mV2Message_(state, config) {
   var a = state.analysis;
   var lines = [config.sheet + '／ヘッダー: ' + a.location.row + '行目',
-    '基準日: ' + a.today + '／最新の対象日付列: ' + a.latest,
-    '登録日以降・基準日以前の列だけを日付順に判定します。未来列は除外します。',
-    '最新列まで続く末尾空欄だけを評価します。後続に非空欄があれば過去区間は破棄します。',
-    '全対象列が空欄なら登録日から、それ以外は最後の非空欄後の最初の空欄日から暦3か月を計算します。',
-    '日付列がない期間を今日まで延長して判定しません。',
+    '基準日: ' + a.today + '／空欄月数の集計終点: ' + a.countThrough + '（先月末）',
+    '登録月を数えず、翌月から先月まで連続' + config.months + 'か月以上空欄の行を対象にします。',
+    '当月は月数に加えませんが、当月内の未来日を含め1つでも記入があれば対象外です。',
+    '記入確認の終点: ' + a.reviewThrough + '（当月末）／最新の確認対象日付列: ' + a.latest,
+    '非空欄の月で連続期間をリセットします。日付列が存在しない月も空欄と推測せず、連続期間を中断します。',
+    '翌月以降の日付列は、記入の有無にかかわらず判定対象外です。',
     '学生: ' + a.students + '行／該当: ' + a.matches.length + '行／判定保留: ' + a.skipped.length + '行',
     '既存の専用ルール: ' + state.managedCount + '件。今回の対象だけに更新し、対象外の専用表示は解除します。',
     '元の塗りつぶし・他の条件付き書式・フィルタ・行表示は保持します。',
     '旧版や手作業で直接塗った赤色は解除しません。判定は再実行時に更新します。'];
   a.matches.slice(0, 20).forEach(function (item) {
-    lines.push('対象 ' + item.cell + ': ' + item.start + '～' + item.end);
+    lines.push('対象 ' + item.cell + ': ' + item.start + '～' + item.end + '（連続' + item.monthCount + 'か月）');
   });
   if (a.matches.length > 20) lines.push('対象は他' + (a.matches.length - 20) + '行');
   a.skipped.slice(0, 20).forEach(function (item) { lines.push('保留 ' + item.cell + ': ' + item.reason); });
