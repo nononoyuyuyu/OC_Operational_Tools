@@ -96,6 +96,15 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get --enforce-lockfile
+      - name: Windows・macOSで通信と実ファイルI/Oを検証
+        if: matrix.target != 'Android'
+        run: >-
+          flutter test --no-pub
+          ../../Tests/OpenCampusOrganizer/transport_safety_test.dart
+          ../../Tests/OpenCampusOrganizer/transport_session_test.dart
+          ../../Tests/OpenCampusOrganizer/transport_response_test.dart
+          ../../Tests/OpenCampusOrganizer/file_store_safety_test.dart
+          ../../Tests/OpenCampusOrganizer/file_store_io_test.dart
       - name: Androidの依存関係をキャッシュ
         if: matrix.target == 'Android'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
