@@ -37,6 +37,19 @@ Google スプレッドシートの`学生情報一覧`から、`学籍番号`、
 - [ソースコード](Source/OC_KakuteiExtractor/)
 - [テスト](Tests/OC_KakuteiExtractor/)
 
+### OC_ThreeMonthBlankHighlighter
+
+登録日以降、最新の対象日付列まで3暦月以上空欄が続いている行の登録日セルを赤表示するGASです。過去の空欄区間後に非空欄がある行は、その過去区間を根拠に対象としません。未来列は判定対象外です。
+
+専用の条件付き書式を管理するため、元の塗りつぶし色を変えず、再実行時に対象外になった行の専用赤表示だけを解除できます。確認専用モードを備え、既存の抽出GAS・フィルタ・行表示は変更しません。
+
+- [設計書](Docs/OC_ThreeMonthBlankHighlighter/設計書.md)
+- [使い方・導入方法](Docs/OC_ThreeMonthBlankHighlighter/使い方%26導入方法.md)
+- [保守について](Docs/OC_ThreeMonthBlankHighlighter/保守について.md)
+- [検証結果と未確認範囲](Docs/OC_ThreeMonthBlankHighlighter/検証結果.md)
+- [ソースコード](Source/OC_ThreeMonthBlankHighlighter/)
+- [テスト](Tests/OC_ThreeMonthBlankHighlighter/)
+
 ## リポジトリ構成
 
 ```text
