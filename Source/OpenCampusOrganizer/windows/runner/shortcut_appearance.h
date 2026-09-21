@@ -6,8 +6,8 @@
 
 // 指定EXEを起動する既存リンクだけを更新する。ピン留めの追加・解除は行わない。
 bool UpdateAppearanceShortcuts(const std::filesystem::path& directory,
-                               const std::wstring& executable, int resource_id,
+                               const std::wstring& executable, const std::filesystem::path& icon_path,
                                int max_depth = 4);
-bool UpdateUserAppearanceShortcuts(const std::wstring& executable, int resource_id);
+bool UpdateUserAppearanceShortcuts(const std::wstring& executable, const std::filesystem::path& icon_path);
 
 #endif
