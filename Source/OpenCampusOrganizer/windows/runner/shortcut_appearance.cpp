@@ -6,10 +6,11 @@
 #include <propkey.h>
 #include <propvarutil.h>
 #include "app_identity.h"
+#include "shell_icon.h"
 
 namespace {
 bool UpdateLink(const std::filesystem::path& path,
-                const std::wstring& executable, int resource_id) {
+                const std::wstring& executable, const std::filesystem::path& icon_path) {
   Microsoft::WRL::ComPtr<IShellLinkW> link;
   Microsoft::WRL::ComPtr<IPersistFile> file;
   if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
@@ -30,13 +31,19 @@ bool UpdateLink(const std::filesystem::path& path,
     PropVariantClear(&value);
     return text;
   };
-  const std::wstring relaunch_icon = executable + L",-" + std::to_wstring(resource_id);
+  const auto previous = ReadShellIconCacheEntry(path);
+  const auto notify = [&]() {
+    NotifyShellIconChanged(previous);
+    NotifyShellIconChanged(ReadShellIconCacheEntry(path));
+    SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSH, path.c_str(), nullptr);
+  };
+  const std::wstring relaunch_icon = icon_path.wstring() + L",0";
   if (SUCCEEDED(link->GetIconLocation(icon, ARRAYSIZE(icon), &index)) &&
-      _wcsicmp(icon, executable.c_str()) == 0 && index == -resource_id &&
+      _wcsicmp(icon, icon_path.c_str()) == 0 && index == 0 &&
       read(PKEY_AppUserModel_ID) == kAppUserModelId &&
       read(PKEY_AppUserModel_RelaunchIconResource) == relaunch_icon) {
     // 前回の通知直後に再試行した場合も、配達を終えてからウィンドウを更新する。
-    SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSH, path.c_str(), nullptr);
+    notify();
     return true;
   }
   // 変更不要な読取専用リンクは成功とし、書換えが必要な場合だけ書込権限を要求する。
@@ -51,15 +58,15 @@ bool UpdateLink(const std::filesystem::path& path,
   // ピン留めで複製された再起動情報に旧リソースが残る場合も揃える。
   if (!set(PKEY_AppUserModel_RelaunchIconResource, relaunch_icon.c_str()) ||
       !set(PKEY_AppUserModel_ID, kAppUserModelId) || FAILED(properties->Commit())) return false;
-  if (FAILED(link->SetIconLocation(executable.c_str(), -resource_id)) ||
+  if (FAILED(link->SetIconLocation(icon_path.c_str(), 0)) ||
       FAILED(file->Save(path.c_str(), TRUE))) return false;
-  SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSH, path.c_str(), nullptr);
+  notify();
   return true;
 }
 }
 
 bool UpdateAppearanceShortcuts(const std::filesystem::path& directory,
-                               const std::wstring& executable, int resource_id, int max_depth) {
+                               const std::wstring& executable, const std::filesystem::path& icon_path, int max_depth) {
   std::error_code error;
   if (!std::filesystem::exists(directory, error)) return !error;
   bool success = true;
@@ -73,14 +80,14 @@ bool UpdateAppearanceShortcuts(const std::filesystem::path& directory,
     } else if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
       if (iterator.depth() >= max_depth) iterator.disable_recursion_pending();
     } else if (_wcsicmp(path.extension().c_str(), L".lnk") == 0) {
-      success = UpdateLink(path, executable, resource_id) && success;
+      success = UpdateLink(path, executable, icon_path) && success;
     }
     iterator.increment(error);
   }
   return success && !error;
 }
 
-bool UpdateUserAppearanceShortcuts(const std::wstring& executable, int resource_id) {
+bool UpdateUserAppearanceShortcuts(const std::wstring& executable, const std::filesystem::path& icon_path) {
   bool success = true;
   for (const auto& folder : {FOLDERID_Programs, FOLDERID_Desktop, FOLDERID_RoamingAppData}) {
     PWSTR raw = nullptr;
@@ -92,7 +99,7 @@ bool UpdateUserAppearanceShortcuts(const std::wstring& executable, int resource_
     }
     // デスクトップ配下のユーザーフォルダーを走査しない。
     const int depth = IsEqualGUID(folder, FOLDERID_Programs) ? 4 : 0;
-    success = UpdateAppearanceShortcuts(directory, executable, resource_id, depth) && success;
+    success = UpdateAppearanceShortcuts(directory, executable, icon_path, depth) && success;
   }
   return success;
 }

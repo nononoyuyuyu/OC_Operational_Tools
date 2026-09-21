@@ -9,11 +9,14 @@
 #include "resource.h"
 #include "shortcut_appearance.h"
 #include "taskbar_properties.h"
+#include "shell_icon.h"
 
 WindowAppearance::WindowAppearance(HWND window,
-                                   flutter::BinaryMessenger* messenger)
+                                   flutter::BinaryMessenger* messenger,
+                                   const std::filesystem::path& shell_icon_directory)
     : window_(window),
       resource_id_(IDI_APP_ICON),
+      shell_icon_directory_(shell_icon_directory.empty() ? UserAppearanceIconDirectory() : shell_icon_directory),
       channel_(messenger, "jp.nononoyuyuyu.open_campus_organizer/appearance",
                &flutter::StandardMethodCodec::GetInstance()) {
   channel_.SetMethodCallHandler(
@@ -44,7 +47,7 @@ WindowAppearance::WindowAppearance(HWND window,
       });
   // 最初のフレームを表示する前に既定の再起動情報を渡す。
   // 保存済み配色は後続のsetThemeで更新し、失敗時も同経路で再試行する。
-  UpdateTaskbarIcon(resource_id_);
+  if (PrepareShellIconFile(shell_icon_directory_, resource_id_, &shell_icon_path_)) UpdateTaskbarIcon();
 }
 
 WindowAppearance::~WindowAppearance() {
@@ -88,15 +91,17 @@ bool WindowAppearance::SetWindowIcons(int resource_id, UINT dpi) {
 bool WindowAppearance::SetIcon(int resource_id, UINT dpi) {
   if (!SetWindowIcons(resource_id, dpi)) return false;
   resource_id_ = resource_id;
+  const auto previous = ReadShellIconCacheEntry(shell_icon_path_);
+  if (!PrepareShellIconFile(shell_icon_directory_, resource_id, &shell_icon_path_)) return false;
   wchar_t executable[32768];
   const DWORD length = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
   if (!length || length >= ARRAYSIZE(executable)) return false;
   // グループが参照するリンクを先に保存し、通知の配達を終えてから公開する。
-  const bool shortcuts_updated = UpdateUserAppearanceShortcuts(executable, resource_id);
+  const bool shortcuts_updated = UpdateUserAppearanceShortcuts(executable, shell_icon_path_);
   // 一部リンクが書込不可でも実行中ウィンドウの更新と再試行経路は維持する。
-  const bool taskbar_updated = UpdateTaskbarIcon(resource_id);
-  // DeleteTab/AddTabでは既存グループのキャッシュ更新を保証できない。
-  // 明示IDの再通知を使い、ボタンの削除・追加やウィンドウの非表示は行わない。
+  const bool taskbar_updated = UpdateTaskbarIcon();
+  NotifyShellIconChanged(previous);
+  NotifyShellIconChanged(ReadShellIconCacheEntry(shell_icon_path_));
   return shortcuts_updated && taskbar_updated;
 }
 
@@ -105,14 +110,14 @@ void WindowAppearance::RefreshForDpi(UINT dpi) {
   SetWindowIcons(resource_id_, dpi);
 }
 
-bool WindowAppearance::UpdateTaskbarIcon(int resource_id) {
+bool WindowAppearance::UpdateTaskbarIcon() {
   Microsoft::WRL::ComPtr<IPropertyStore> properties;
   if (FAILED(SHGetPropertyStoreForWindow(window_, IID_PPV_ARGS(&properties)))) return false;
   wchar_t executable[32768];
   const DWORD length = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
   if (!length || length >= ARRAYSIZE(executable)) return false;
   return SetTaskbarAppearanceProperties(properties.Get(),
-                                       std::wstring(executable, length), resource_id);
+                                       std::wstring(executable, length), shell_icon_path_.wstring());
 }
 
 void WindowAppearance::ClearTaskbarProperties() {

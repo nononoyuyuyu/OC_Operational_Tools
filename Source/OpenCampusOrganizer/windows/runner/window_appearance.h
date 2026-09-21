@@ -4,11 +4,13 @@
 #include <flutter/method_channel.h>
 #include <flutter/encodable_value.h>
 #include <windows.h>
+#include <filesystem>
 
 // ウィンドウ表示とOSリソースの所有権をFlutter画面から分離する。
 class WindowAppearance {
  public:
-  WindowAppearance(HWND window, flutter::BinaryMessenger* messenger);
+  WindowAppearance(HWND window, flutter::BinaryMessenger* messenger,
+                   const std::filesystem::path& shell_icon_directory = {});
   ~WindowAppearance();
   void RefreshForDpi(UINT dpi);
   void RefreshTaskbar();
@@ -16,10 +18,12 @@ class WindowAppearance {
  private:
   bool SetIcon(int resource_id, UINT dpi);
   bool SetWindowIcons(int resource_id, UINT dpi);
-  bool UpdateTaskbarIcon(int resource_id);
+  bool UpdateTaskbarIcon();
   void ClearTaskbarProperties();
   HWND window_;
   int resource_id_;
+  std::filesystem::path shell_icon_directory_;
+  std::filesystem::path shell_icon_path_;
   HICON large_icon_ = nullptr;
   HICON small_icon_ = nullptr;
   flutter::MethodChannel<flutter::EncodableValue> channel_;

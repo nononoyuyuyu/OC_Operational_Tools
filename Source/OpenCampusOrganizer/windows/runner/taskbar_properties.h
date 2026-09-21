@@ -11,10 +11,10 @@
 #include "resource.h"
 
 // ショートカットの変更通知を配達した後で呼ぶ。
-// 同じIDの再代入だけに依存せず、メタデータを揃えてから明示的に再通知する。
+// IDは固定する。表示済み画像の更新はshell_icon側のSHUpdateImageが担当する。
 inline bool SetTaskbarAppearanceProperties(IPropertyStore* properties,
                                           const std::wstring& executable,
-                                          int resource_id) {
+                                          const std::wstring& icon_path) {
   const auto set = [&](const PROPERTYKEY& key, const std::wstring& text) {
     PROPVARIANT value{};
     HRESULT status = InitPropVariantFromString(text.c_str(), &value);
@@ -26,12 +26,9 @@ inline bool SetTaskbarAppearanceProperties(IPropertyStore* properties,
       !set(PKEY_AppUserModel_RelaunchDisplayNameResource,
            L"@" + executable + L",-" + std::to_wstring(IDS_APP_NAME)) ||
       !set(PKEY_AppUserModel_RelaunchIconResource,
-           executable + L",-" + std::to_wstring(resource_id))) return false;
+           icon_path + L",0")) return false;
 
-  // プロセスとショートカットの固定IDは変更しない。
-  // ウィンドウの明示IDだけをリセットし、既存のグループへ最新情報を公開する。
-  const PROPVARIANT empty{};
-  if (FAILED(properties->SetValue(PKEY_AppUserModel_ID, empty))) return false;
+  // 空にしてもプロセスの同じIDを継承するため、キャッシュ無効化にはならない。
   return set(PKEY_AppUserModel_ID, kAppUserModelId);
 }
 
