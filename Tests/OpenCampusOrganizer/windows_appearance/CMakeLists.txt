@@ -10,4 +10,4 @@ add_executable(oco_appearance_test EXCLUDE_FROM_ALL
 apply_standard_settings(oco_appearance_test)
 target_compile_definitions(oco_appearance_test PRIVATE NOMINMAX OCO_APPEARANCE_TEST)
 target_include_directories(oco_appearance_test PRIVATE "${RUNNER_DIR}")
-target_link_libraries(oco_appearance_test PRIVATE flutter_wrapper_app shell32 shlwapi propsys ole32 comctl32 bcrypt)
+target_link_libraries(oco_appearance_test PRIVATE flutter_wrapper_app shell32 shlwapi propsys ole32 oleaut32 comctl32 bcrypt)

@@ -27,8 +27,14 @@ bool UpdateLink(const std::filesystem::path& path,
   if (FAILED(link.As(&properties))) return false;
   const auto read = [&](const PROPERTYKEY& key) {
     PROPVARIANT value{};
-    properties->GetValue(key, &value);
-    const std::wstring text = value.vt == VT_LPWSTR ? value.pwszVal : L"";
+    PWSTR raw = nullptr;
+    std::wstring text;
+    // インストーラーはVT_BSTR、アプリ自身はVT_LPWSTRで保存する。
+    // 同じ文字列を別型でSetValueしても既存の型は残るため、両方を読む。
+    if (SUCCEEDED(properties->GetValue(key, &value)) &&
+        (value.vt == VT_LPWSTR || value.vt == VT_BSTR) &&
+        SUCCEEDED(PropVariantToStringAlloc(value, &raw)) && raw) text = raw;
+    CoTaskMemFree(raw);
     PropVariantClear(&value);
     return text;
   };
