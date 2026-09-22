@@ -5,12 +5,14 @@
 #include <flutter/encodable_value.h>
 #include <windows.h>
 #include <filesystem>
+#include "shortcut_appearance.h"
 
 // ウィンドウ表示とOSリソースの所有権をFlutter画面から分離する。
 class WindowAppearance {
  public:
   WindowAppearance(HWND window, flutter::BinaryMessenger* messenger,
-                   const std::filesystem::path& shell_icon_directory = {});
+                   const std::filesystem::path& shell_icon_directory = {},
+                   ShellChangeNotifier notify = SHChangeNotify);
   ~WindowAppearance();
   void RefreshForDpi(UINT dpi);
   void RefreshTaskbar();
@@ -26,6 +28,7 @@ class WindowAppearance {
   std::filesystem::path shell_icon_path_;
   HICON large_icon_ = nullptr;
   HICON small_icon_ = nullptr;
+  ShellChangeNotifier notify_;
   flutter::MethodChannel<flutter::EncodableValue> channel_;
 };
 

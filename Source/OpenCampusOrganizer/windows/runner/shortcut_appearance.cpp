@@ -10,7 +10,8 @@
 
 namespace {
 bool UpdateLink(const std::filesystem::path& path,
-                const std::wstring& executable, const std::filesystem::path& icon_path) {
+                const std::wstring& executable, const std::filesystem::path& icon_path,
+                AppearanceShortcutUpdates* pending) {
   Microsoft::WRL::ComPtr<IShellLinkW> link;
   Microsoft::WRL::ComPtr<IPersistFile> file;
   if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
@@ -32,18 +33,13 @@ bool UpdateLink(const std::filesystem::path& path,
     return text;
   };
   const auto previous = ReadShellIconCacheEntry(path);
-  const auto notify = [&]() {
-    NotifyShellIconChanged(previous);
-    NotifyShellIconChanged(ReadShellIconCacheEntry(path));
-    SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSH, path.c_str(), nullptr);
-  };
   const std::wstring relaunch_icon = icon_path.wstring() + L",0";
   if (SUCCEEDED(link->GetIconLocation(icon, ARRAYSIZE(icon), &index)) &&
       _wcsicmp(icon, icon_path.c_str()) == 0 && index == 0 &&
       read(PKEY_AppUserModel_ID) == kAppUserModelId &&
       read(PKEY_AppUserModel_RelaunchIconResource) == relaunch_icon) {
-    // 前回の通知直後に再試行した場合も、配達を終えてからウィンドウを更新する。
-    notify();
+    // 再試行ではファイルを再保存せず通知だけをやり直す。
+    pending->push_back({path, previous});
     return true;
   }
   // 変更不要な読取専用リンクは成功とし、書換えが必要な場合だけ書込権限を要求する。
@@ -60,13 +56,17 @@ bool UpdateLink(const std::filesystem::path& path,
       !set(PKEY_AppUserModel_ID, kAppUserModelId) || FAILED(properties->Commit())) return false;
   if (FAILED(link->SetIconLocation(icon_path.c_str(), 0)) ||
       FAILED(file->Save(path.c_str(), TRUE))) return false;
-  notify();
+  // COMオブジェクトを解放する前には通知しない。呼出側で全更新後に通知する。
+  pending->push_back({path, previous});
   return true;
 }
 }
 
 bool UpdateAppearanceShortcuts(const std::filesystem::path& directory,
-                               const std::wstring& executable, const std::filesystem::path& icon_path, int max_depth) {
+                               const std::wstring& executable, const std::filesystem::path& icon_path,
+                               int max_depth, AppearanceShortcutUpdates* pending) {
+  AppearanceShortcutUpdates local_updates;
+  auto* updates = pending ? pending : &local_updates;
   std::error_code error;
   if (!std::filesystem::exists(directory, error)) return !error;
   bool success = true;
@@ -80,14 +80,18 @@ bool UpdateAppearanceShortcuts(const std::filesystem::path& directory,
     } else if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
       if (iterator.depth() >= max_depth) iterator.disable_recursion_pending();
     } else if (_wcsicmp(path.extension().c_str(), L".lnk") == 0) {
-      success = UpdateLink(path, executable, icon_path) && success;
+      success = UpdateLink(path, executable, icon_path, updates) && success;
     }
     iterator.increment(error);
   }
+  if (!pending) NotifyAppearanceShortcuts(local_updates, false);
   return success && !error;
 }
 
-bool UpdateUserAppearanceShortcuts(const std::wstring& executable, const std::filesystem::path& icon_path) {
+bool UpdateUserAppearanceShortcuts(const std::wstring& executable, const std::filesystem::path& icon_path,
+                                  AppearanceShortcutUpdates* pending) {
+  AppearanceShortcutUpdates local_updates;
+  auto* updates = pending ? pending : &local_updates;
   bool success = true;
   for (const auto& folder : {FOLDERID_Programs, FOLDERID_Desktop, FOLDERID_RoamingAppData}) {
     PWSTR raw = nullptr;
@@ -99,7 +103,33 @@ bool UpdateUserAppearanceShortcuts(const std::wstring& executable, const std::fi
     }
     // デスクトップ配下のユーザーフォルダーを走査しない。
     const int depth = IsEqualGUID(folder, FOLDERID_Programs) ? 4 : 0;
-    success = UpdateAppearanceShortcuts(directory, executable, icon_path, depth) && success;
+    success = UpdateAppearanceShortcuts(directory, executable, icon_path, depth, updates) && success;
   }
+  if (!pending) NotifyAppearanceShortcuts(local_updates, false);
   return success;
+}
+
+void NotifyAppearanceShortcuts(const AppearanceShortcutUpdates& updates, bool global_refresh,
+                               ShellChangeNotifier notify) {
+  for (const auto& update : updates) {
+    NotifyShellIconChanged(update.previous_icon);
+    NotifyShellIconChanged(ReadShellIconCacheEntry(update.path));
+  }
+  // SHUpdateImageだけではWindows 11の表示済みグループが再取得されない。
+  // 全参照の保存後にキャッシュ更新を通知し、その後に個別リンクを再通知する。
+  // 順序はChromiumのWindows 11向けショートカット更新も参照。
+  if (global_refresh) notify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSH, nullptr, nullptr);
+  const auto update_item = [&](const std::wstring& name) {
+    PIDLIST_ABSOLUTE item = nullptr;
+    if (SUCCEEDED(SHParseDisplayName(name.c_str(), nullptr, &item, 0, nullptr))) {
+      notify(SHCNE_UPDATEITEM, SHCNF_IDLIST | SHCNF_FLUSH, item, nullptr);
+      CoTaskMemFree(item);
+    }
+  };
+  for (const auto& update : updates) update_item(update.path.wstring());
+  if (global_refresh) {
+    // スタートはファイルの.lnkとは別のAppsFolder項目も保持する。
+    // 未登録のポータブル起動では項目がないため通知を省く。
+    update_item(std::wstring(L"shell:AppsFolder\\") + kAppUserModelId);
+  }
 }

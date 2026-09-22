@@ -199,6 +199,8 @@ std::wstring Property(HWND window, const PROPERTYKEY& key) {
   return result;
 }
 
+#include "shell_publication_test.h"
+
 int main() {
   CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   int argument_count = 0;
@@ -234,13 +236,14 @@ int main() {
     Check(shell.updates > 0, "No image invalidation reached the shell consumer");
     Check(window != nullptr, "Cannot create test window");
     Messenger messenger;
+    ShellPublicationObserver publication(window);
     {
       wchar_t temporary[MAX_PATH];
       GetTempPathW(ARRAYSIZE(temporary), temporary);
       const auto icon_directory = std::filesystem::path(temporary) /
           (L"oco-window-icon-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
       std::filesystem::path shell_icon;
-      WindowAppearance appearance(window, &messenger, icon_directory);
+      WindowAppearance appearance(window, &messenger, icon_directory, ShellPublicationObserver::Notify);
       Check(Property(window, PKEY_AppUserModel_ID) == kAppUserModelId, "Missing identity before settings load");
       wchar_t name[256];
       Check(SUCCEEDED(SHLoadIndirectString(Property(window, PKEY_AppUserModel_RelaunchDisplayNameResource).c_str(), name, ARRAYSIZE(name), nullptr)), "Cannot resolve shell display name");
@@ -251,9 +254,14 @@ int main() {
       ShowWindow(window, SW_SHOWNOACTIVATE);
       for (int round = 0; round < 3; ++round) {
         for (int i = 0; i < 5; ++i) {
+          Check(PrepareShellIconFile(icon_directory, 101 + i, &shell_icon), "Cannot resolve expected icon file");
+          publication.expected_icon = shell_icon.wstring() + L",0";
+          publication.expected_resource = 101 + i;
+          const int refreshes_before = publication.associations;
           Check(messenger.Theme(themes[i]), "Theme update failed");
           Check(messenger.Theme(themes[i]), "Same-theme retry failed");
-          Check(PrepareShellIconFile(icon_directory, 101 + i, &shell_icon), "Cannot resolve expected icon file");
+          Check(publication.associations == refreshes_before + 2, "Theme or retry omitted shell cache refresh");
+          Check(publication.metadata_ready && publication.pixels_ready, "Shell read a partially published theme");
           Check(IsWindowVisible(window) != 0, "Theme update hid the window");
           Check(SendMessageW(window, WM_GETICON, ICON_BIG, 0) != 0, "Missing large icon");
           Check(SendMessageW(window, WM_GETICON, ICON_SMALL, 0) != 0, "Missing small icon");
@@ -261,7 +269,9 @@ int main() {
                     shell_icon.wstring() + L",0", "Wrong taskbar icon resource");
           CheckShellIcon(shell_icon, 101 + i);
           Check(Property(window, PKEY_AppUserModel_ID) == kAppUserModelId, "Wrong application ID");
+          const int refreshes_before_dpi = publication.associations;
           appearance.RefreshForDpi(144);
+          Check(publication.associations == refreshes_before_dpi, "DPI change refreshed the global icon cache");
           ICONINFO info{};
           Check(GetIconInfo(reinterpret_cast<HICON>(SendMessageW(window, WM_GETICON, ICON_BIG, 0)), &info) != 0, "Cannot inspect DPI icon");
           BITMAP bitmap{};
@@ -277,18 +287,25 @@ int main() {
         }
       }
       ShowWindow(window, SW_MINIMIZE);
+      Check(PrepareShellIconFile(icon_directory, 104, &shell_icon), "Cannot resolve minimized icon");
+      publication.expected_icon = shell_icon.wstring() + L",0";
+      publication.expected_resource = 104;
       Check(messenger.Theme("sage"), "Minimized theme update failed");
       Check(IsIconic(window) != 0, "Theme update restored a minimized window");
       const auto before = Property(window, PKEY_AppUserModel_RelaunchIconResource);
+      const int refreshes_before_invalid = publication.associations;
       Check(!messenger.Theme("unknown"), "Invalid theme accepted");
+      Check(publication.associations == refreshes_before_invalid, "Invalid theme refreshed Shell");
       Check(Property(window, PKEY_AppUserModel_RelaunchIconResource) == before, "Invalid theme changed icon");
       CheckShellIcon(std::filesystem::path(before.substr(0, before.size() - 2)), 104);
+      TestDeferredShortcutPublication(publication, icon_directory, shell_icon);
       for (const auto& entry : std::filesystem::directory_iterator(icon_directory)) std::filesystem::remove(entry.path());
       std::filesystem::remove(icon_directory);
     }
     Check(Property(window, PKEY_AppUserModel_ID).empty(), "Properties left after disposal");
     Check(SendMessageW(window, WM_GETICON, ICON_BIG, 0) == 0, "Icon left after disposal");
-    std::cout << "PASS: 5 themes x 9 exported sizes, immutable cache, write failure/retry, shell pixels and image notifications, repeated shortcut updates, installer replacement, DPI, refresh, minimized window, disposal\n";
+    Check(publication.metadata_ready && publication.pixels_ready, "Shell publication order regressed");
+    std::cout << "PASS: 5 themes x 9 exported sizes, immutable cache, write failure/retry, shell pixels and image notifications, repeated shortcut updates, installer replacement, metadata before WM_SETICON, per-theme refresh and retry, no DPI cache refresh, minimized window, disposal\n";
   } catch (const std::exception& error) { std::cerr << error.what() << '\n'; result = 1; }
   if (window) DestroyWindow(window);
   CoUninitialize();

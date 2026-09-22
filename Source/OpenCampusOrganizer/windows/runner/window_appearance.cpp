@@ -13,10 +13,12 @@
 
 WindowAppearance::WindowAppearance(HWND window,
                                    flutter::BinaryMessenger* messenger,
-                                   const std::filesystem::path& shell_icon_directory)
+                                   const std::filesystem::path& shell_icon_directory,
+                                   ShellChangeNotifier notify)
     : window_(window),
       resource_id_(IDI_APP_ICON),
       shell_icon_directory_(shell_icon_directory.empty() ? UserAppearanceIconDirectory() : shell_icon_directory),
+      notify_(notify),
       channel_(messenger, "jp.nononoyuyuyu.open_campus_organizer/appearance",
                &flutter::StandardMethodCodec::GetInstance()) {
   channel_.SetMethodCallHandler(
@@ -89,20 +91,22 @@ bool WindowAppearance::SetWindowIcons(int resource_id, UINT dpi) {
 }
 
 bool WindowAppearance::SetIcon(int resource_id, UINT dpi) {
-  if (!SetWindowIcons(resource_id, dpi)) return false;
-  resource_id_ = resource_id;
   const auto previous = ReadShellIconCacheEntry(shell_icon_path_);
   if (!PrepareShellIconFile(shell_icon_directory_, resource_id, &shell_icon_path_)) return false;
   wchar_t executable[32768];
   const DWORD length = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
   if (!length || length >= ARRAYSIZE(executable)) return false;
-  // グループが参照するリンクを先に保存し、通知の配達を終えてから公開する。
-  const bool shortcuts_updated = UpdateUserAppearanceShortcuts(executable, shell_icon_path_);
+  // Shellが通知を受けて再取得する時点ではリンクもウィンドウも新配色に揃える。
+  AppearanceShortcutUpdates pending;
+  const bool shortcuts_updated = UpdateUserAppearanceShortcuts(executable, shell_icon_path_, &pending);
   // 一部リンクが書込不可でも実行中ウィンドウの更新と再試行経路は維持する。
   const bool taskbar_updated = UpdateTaskbarIcon();
+  const bool window_updated = SetWindowIcons(resource_id, dpi);
+  if (window_updated) resource_id_ = resource_id;
   NotifyShellIconChanged(previous);
   NotifyShellIconChanged(ReadShellIconCacheEntry(shell_icon_path_));
-  return shortcuts_updated && taskbar_updated;
+  NotifyAppearanceShortcuts(pending, true, notify_);
+  return shortcuts_updated && taskbar_updated && window_updated;
 }
 
 void WindowAppearance::RefreshForDpi(UINT dpi) {
