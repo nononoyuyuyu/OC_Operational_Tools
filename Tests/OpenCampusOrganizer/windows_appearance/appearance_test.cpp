@@ -24,6 +24,7 @@ void Check(bool value, const char* message) {
 }
 
 #include "shell_icon_test.h"
+#include "shortcut_locations_test.h"
 
 void TestIconFiles() {
   wchar_t temporary[MAX_PATH];
@@ -274,6 +275,7 @@ int main() {
     TestTaskbarProperties();
     TestIconFiles();
     TestShortcuts();
+    TestUserShortcutLocations();
     Check(shell.updates > 0, "No image invalidation reached the shell consumer");
     Check(window != nullptr, "Cannot create test window");
     Messenger messenger;

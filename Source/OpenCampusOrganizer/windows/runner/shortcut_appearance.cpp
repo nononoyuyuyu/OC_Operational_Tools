@@ -75,6 +75,10 @@ bool UpdateAppearanceShortcuts(const std::filesystem::path& directory,
   auto* updates = pending ? pending : &local_updates;
   std::error_code error;
   if (!std::filesystem::exists(directory, error)) return !error;
+  // 走査開始点も、配下の項目と同様にリパースポイントをたどらない。
+  const DWORD root_attributes = GetFileAttributesW(directory.c_str());
+  if (root_attributes == INVALID_FILE_ATTRIBUTES) return false;
+  if (root_attributes & FILE_ATTRIBUTE_REPARSE_POINT) return true;
   bool success = true;
   std::filesystem::recursive_directory_iterator iterator(
       directory, std::filesystem::directory_options::skip_permission_denied, error), end;
@@ -95,20 +99,24 @@ bool UpdateAppearanceShortcuts(const std::filesystem::path& directory,
 }
 
 bool UpdateUserAppearanceShortcuts(const std::wstring& executable, const std::filesystem::path& icon_path,
-                                  AppearanceShortcutUpdates* pending) {
+                                  AppearanceShortcutUpdates* pending,
+                                  AppearanceFolderResolver resolve_folder) {
   AppearanceShortcutUpdates local_updates;
   auto* updates = pending ? pending : &local_updates;
   bool success = true;
-  for (const auto& folder : {FOLDERID_Programs, FOLDERID_Desktop, FOLDERID_RoamingAppData}) {
+  for (const auto& folder : {FOLDERID_Programs, FOLDERID_Desktop, FOLDERID_RoamingAppData,
+                            FOLDERID_ImplicitAppShortcuts}) {
     PWSTR raw = nullptr;
-    if (FAILED(SHGetKnownFolderPath(folder, 0, nullptr, &raw))) continue;
+    if (FAILED(resolve_folder(folder, 0, nullptr, &raw))) continue;
     std::filesystem::path directory(raw);
     CoTaskMemFree(raw);
     if (IsEqualGUID(folder, FOLDERID_RoamingAppData)) {
       directory /= L"Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar";
     }
     // デスクトップ配下のユーザーフォルダーを走査しない。
-    const int depth = IsEqualGUID(folder, FOLDERID_Programs) ? 4 : 0;
+    // Windowsがグループ用に保持するリンクはImplicitAppShortcutsの1階層下にもある。
+    const int depth = IsEqualGUID(folder, FOLDERID_Programs) ? 4 :
+                      IsEqualGUID(folder, FOLDERID_ImplicitAppShortcuts) ? 1 : 0;
     success = UpdateAppearanceShortcuts(directory, executable, icon_path, depth, updates) && success;
   }
   if (!pending) NotifyAppearanceShortcuts(local_updates, false);
