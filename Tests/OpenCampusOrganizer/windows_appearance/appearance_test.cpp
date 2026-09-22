@@ -24,6 +24,7 @@ void Check(bool value, const char* message) {
 }
 
 #include "shell_icon_test.h"
+#include "shortcut_locations_test.h"
 
 void TestIconFiles() {
   wchar_t temporary[MAX_PATH];
@@ -91,17 +92,31 @@ void TestShortcuts() {
   wchar_t executable[32768];
   GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
   const auto owned = directory / L"Renamed OCO.lnk";
+  const auto app_created = directory / L"App-created OCO.lnk";
   const auto foreign = directory / L"Open Campus Organizer.lnk";
   const auto icon_directory = directory / L"appearance";
   std::filesystem::path shell_icon;
-  for (const auto& path : {owned, foreign}) {
+  for (const auto& path : {owned, app_created, foreign}) {
     ComPtr<IShellLinkW> link;
     ComPtr<IPersistFile> file;
     Check(SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link))), "Cannot create link");
-    link->SetPath(path == owned ? executable : L"C:\\Windows\\notepad.exe");
+    link->SetPath(path != foreign ? executable : L"C:\\Windows\\notepad.exe");
     link->SetArguments(L"--preserve-this");
     link->SetWorkingDirectory(directory.c_str());
     link->SetIconLocation(executable, -101);
+    if (path == owned) {
+      // Inno Setupと同じ文字列型でアプリIDを初めて保存する。
+      // 既存の同値プロパティに別型を設定してもShellLinkは元の型を保持する。
+      ComPtr<IPropertyStore> properties;
+      Check(SUCCEEDED(link.As(&properties)), "Cannot open installer-format properties");
+      PROPVARIANT identity{};
+      identity.vt = VT_BSTR;
+      identity.bstrVal = SysAllocString(kAppUserModelId);
+      Check(identity.bstrVal != nullptr, "Cannot allocate installer-format identity");
+      const auto status = properties->SetValue(PKEY_AppUserModel_ID, identity);
+      PropVariantClear(&identity);
+      Check(SUCCEEDED(status) && SUCCEEDED(properties->Commit()), "Cannot save installer-format identity");
+    }
     link.As(&file);
     Check(SUCCEEDED(file->Save(path.c_str(), TRUE)), "Cannot save fixture");
   }
@@ -115,7 +130,7 @@ void TestShortcuts() {
       CheckShellIcon(owned, resource);
       CheckShellIcon(owned, resource, true);
       CheckShellIcon(foreign, 101);
-      for (const auto& path : {owned, foreign}) {
+      for (const auto& path : {owned, app_created, foreign}) {
         ComPtr<IShellLinkW> link;
         ComPtr<IPersistFile> file;
         CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link));
@@ -124,13 +139,13 @@ void TestShortcuts() {
         wchar_t icon[32768], arguments[256], working[32768];
         int index = 0;
         link->GetIconLocation(icon, ARRAYSIZE(icon), &index);
-        Check(std::wstring(icon) == (path == owned ? shell_icon.wstring() : executable) &&
-              index == (path == owned ? 0 : -101), "Wrong shortcut changed");
+        Check(std::wstring(icon) == (path != foreign ? shell_icon.wstring() : executable) &&
+              index == (path != foreign ? 0 : -101), "Wrong shortcut changed");
         ComPtr<IPropertyStore> properties;
         link.As(&properties);
         PROPVARIANT saved{};
         properties->GetValue(PKEY_AppUserModel_RelaunchIconResource, &saved);
-        Check(path == owned ? saved.vt == VT_LPWSTR && std::wstring(saved.pwszVal) == shell_icon.wstring() + L",0" : saved.vt == VT_EMPTY,
+        Check(path != foreign ? saved.vt == VT_LPWSTR && std::wstring(saved.pwszVal) == shell_icon.wstring() + L",0" : saved.vt == VT_EMPTY,
               "Pinned relaunch icon did not follow theme");
         PropVariantClear(&saved);
         link->GetArguments(arguments, ARRAYSIZE(arguments));
@@ -139,8 +154,34 @@ void TestShortcuts() {
       }
     }
   }
+  // テーマ切替を重ねても、インストーラー由来の型が残ることを実ファイルで確認する。
+  {
+    ComPtr<IShellLinkW> link;
+    ComPtr<IPersistFile> file;
+    ComPtr<IPropertyStore> properties;
+    Check(SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                     IID_PPV_ARGS(&link))) && SUCCEEDED(link.As(&file)) &&
+          SUCCEEDED(file->Load(owned.c_str(), STGM_READ)) && SUCCEEDED(link.As(&properties)),
+          "Cannot open installer-format shortcut fixture");
+    PROPVARIANT identity{};
+    Check(SUCCEEDED(properties->GetValue(PKEY_AppUserModel_ID, &identity)), "Cannot reload installer-format identity");
+    const bool preserved = identity.vt == VT_BSTR && identity.bstrVal &&
+                          std::wstring(identity.bstrVal) == kAppUserModelId;
+    PropVariantClear(&identity);
+    Check(preserved, "Fixture did not preserve the installer string representation");
+  }
   SetFileAttributesW(owned.c_str(), FILE_ATTRIBUTE_READONLY);
-  Check(UpdateAppearanceShortcuts(directory, executable, shell_icon), "Unchanged read-only shortcut should succeed");
+  SetFileAttributesW(app_created.c_str(), FILE_ATTRIBUTE_READONLY);
+  const auto unchanged_time = std::filesystem::last_write_time(owned);
+  const auto app_created_time = std::filesystem::last_write_time(app_created);
+  const bool unchanged_success = UpdateAppearanceShortcuts(directory, executable, shell_icon);
+  // 失敗を報告する場合にも、このテストが付けた読取専用属性は残さない。
+  SetFileAttributesW(owned.c_str(), FILE_ATTRIBUTE_NORMAL);
+  SetFileAttributesW(app_created.c_str(), FILE_ATTRIBUTE_NORMAL);
+  Check(unchanged_success, "Unchanged BSTR read-only shortcut should succeed");
+  Check(std::filesystem::last_write_time(owned) == unchanged_time, "Same theme rewrote installer-format shortcut");
+  Check(std::filesystem::last_write_time(app_created) == app_created_time, "Same theme rewrote app-created shortcut");
+  SetFileAttributesW(owned.c_str(), FILE_ATTRIBUTE_READONLY);
   Check(PrepareShellIconFile(icon_directory, 101, &shell_icon), "Cannot prepare next theme");
   Check(!UpdateAppearanceShortcuts(directory, executable, shell_icon), "Write failure was hidden");
   CheckShellIcon(owned, 105);
@@ -159,6 +200,7 @@ void TestShortcuts() {
   Check(UpdateAppearanceShortcuts(directory, executable, shell_icon), "Cannot repair reinstalled shortcut");
   CheckShellIcon(owned, 104);
   std::filesystem::remove(owned);
+  std::filesystem::remove(app_created);
   std::filesystem::remove(foreign);
   for (const auto& entry : std::filesystem::directory_iterator(icon_directory)) std::filesystem::remove(entry.path());
   std::filesystem::remove(icon_directory);
@@ -199,6 +241,8 @@ std::wstring Property(HWND window, const PROPERTYKEY& key) {
   return result;
 }
 
+#include "shell_publication_test.h"
+
 int main() {
   CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   int argument_count = 0;
@@ -231,16 +275,18 @@ int main() {
     TestTaskbarProperties();
     TestIconFiles();
     TestShortcuts();
+    TestUserShortcutLocations();
     Check(shell.updates > 0, "No image invalidation reached the shell consumer");
     Check(window != nullptr, "Cannot create test window");
     Messenger messenger;
+    ShellPublicationObserver publication(window);
     {
       wchar_t temporary[MAX_PATH];
       GetTempPathW(ARRAYSIZE(temporary), temporary);
       const auto icon_directory = std::filesystem::path(temporary) /
           (L"oco-window-icon-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
       std::filesystem::path shell_icon;
-      WindowAppearance appearance(window, &messenger, icon_directory);
+      WindowAppearance appearance(window, &messenger, icon_directory, ShellPublicationObserver::Notify);
       Check(Property(window, PKEY_AppUserModel_ID) == kAppUserModelId, "Missing identity before settings load");
       wchar_t name[256];
       Check(SUCCEEDED(SHLoadIndirectString(Property(window, PKEY_AppUserModel_RelaunchDisplayNameResource).c_str(), name, ARRAYSIZE(name), nullptr)), "Cannot resolve shell display name");
@@ -251,9 +297,14 @@ int main() {
       ShowWindow(window, SW_SHOWNOACTIVATE);
       for (int round = 0; round < 3; ++round) {
         for (int i = 0; i < 5; ++i) {
+          Check(PrepareShellIconFile(icon_directory, 101 + i, &shell_icon), "Cannot resolve expected icon file");
+          publication.expected_icon = shell_icon.wstring() + L",0";
+          publication.expected_resource = 101 + i;
+          const int refreshes_before = publication.associations;
           Check(messenger.Theme(themes[i]), "Theme update failed");
           Check(messenger.Theme(themes[i]), "Same-theme retry failed");
-          Check(PrepareShellIconFile(icon_directory, 101 + i, &shell_icon), "Cannot resolve expected icon file");
+          Check(publication.associations == refreshes_before + 2, "Theme or retry omitted shell cache refresh");
+          Check(publication.metadata_ready && publication.pixels_ready, "Shell read a partially published theme");
           Check(IsWindowVisible(window) != 0, "Theme update hid the window");
           Check(SendMessageW(window, WM_GETICON, ICON_BIG, 0) != 0, "Missing large icon");
           Check(SendMessageW(window, WM_GETICON, ICON_SMALL, 0) != 0, "Missing small icon");
@@ -261,7 +312,9 @@ int main() {
                     shell_icon.wstring() + L",0", "Wrong taskbar icon resource");
           CheckShellIcon(shell_icon, 101 + i);
           Check(Property(window, PKEY_AppUserModel_ID) == kAppUserModelId, "Wrong application ID");
+          const int refreshes_before_dpi = publication.associations;
           appearance.RefreshForDpi(144);
+          Check(publication.associations == refreshes_before_dpi, "DPI change refreshed the global icon cache");
           ICONINFO info{};
           Check(GetIconInfo(reinterpret_cast<HICON>(SendMessageW(window, WM_GETICON, ICON_BIG, 0)), &info) != 0, "Cannot inspect DPI icon");
           BITMAP bitmap{};
@@ -277,18 +330,25 @@ int main() {
         }
       }
       ShowWindow(window, SW_MINIMIZE);
+      Check(PrepareShellIconFile(icon_directory, 104, &shell_icon), "Cannot resolve minimized icon");
+      publication.expected_icon = shell_icon.wstring() + L",0";
+      publication.expected_resource = 104;
       Check(messenger.Theme("sage"), "Minimized theme update failed");
       Check(IsIconic(window) != 0, "Theme update restored a minimized window");
       const auto before = Property(window, PKEY_AppUserModel_RelaunchIconResource);
+      const int refreshes_before_invalid = publication.associations;
       Check(!messenger.Theme("unknown"), "Invalid theme accepted");
+      Check(publication.associations == refreshes_before_invalid, "Invalid theme refreshed Shell");
       Check(Property(window, PKEY_AppUserModel_RelaunchIconResource) == before, "Invalid theme changed icon");
       CheckShellIcon(std::filesystem::path(before.substr(0, before.size() - 2)), 104);
+      TestDeferredShortcutPublication(publication, icon_directory, shell_icon);
       for (const auto& entry : std::filesystem::directory_iterator(icon_directory)) std::filesystem::remove(entry.path());
       std::filesystem::remove(icon_directory);
     }
     Check(Property(window, PKEY_AppUserModel_ID).empty(), "Properties left after disposal");
     Check(SendMessageW(window, WM_GETICON, ICON_BIG, 0) == 0, "Icon left after disposal");
-    std::cout << "PASS: 5 themes x 9 exported sizes, immutable cache, write failure/retry, shell pixels and image notifications, repeated shortcut updates, installer replacement, DPI, refresh, minimized window, disposal\n";
+    Check(publication.metadata_ready && publication.pixels_ready, "Shell publication order regressed");
+    std::cout << "PASS: 5 themes x 9 exported sizes, immutable cache, write failure/retry, shell pixels and image notifications, repeated shortcut updates, installer replacement, metadata before WM_SETICON, per-theme refresh and retry, no DPI cache refresh, minimized window, disposal\n";
   } catch (const std::exception& error) { std::cerr << error.what() << '\n'; result = 1; }
   if (window) DestroyWindow(window);
   CoUninitialize();

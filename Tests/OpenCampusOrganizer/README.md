@@ -29,6 +29,7 @@ flutter test --no-pub ../../Tests/OpenCampusOrganizer --reporter expanded
 | `android_apk_version_test.py` | 実際のCPU別Debug APKのapplicationId・versionName・versionCode・ABI |
 | `appearance_history_test.dart` | 5色の保存・復元、初期ダークと旧設定の継続、連続選択、文字・状態表示・入力枠のコントラスト、共通履歴、設定変更時の入力保持 |
 | `window_appearance_test.dart` | Windowsへ初期配色と全5色を通知、モバイルでの分離、アイコン更新失敗時にも配色を保存 |
+| `windows_appearance/` | 実ウィンドウ・Shell API、全5色×9サイズ、リンクの反復更新・BSTR形式、更新情報と通知の順序、TaskBarとImplicitAppShortcutsの限定走査・他アプリの保持 |
 | `branding_migration_test.dart` | 旧Windows保存先からの移行、旧ファイル・新設定の保持、失敗時の再試行、削除後のTokenの再取り込み防止。資格情報は架空の値で検証 |
 | `performance_test.dart` | メンバーの一括照合と個別照会への切替、ページ上限、権限の再確認、403での停止 |
 | `performance_benchmark_test.dart` | 架空の50人による実際のHTTPアダプターの要求回数比較。時間計測と実Discord接続は行わない |
@@ -42,6 +43,8 @@ flutter test --no-pub ../../Tests/OpenCampusOrganizer --reporter expanded
 | `runtime_test.dart` | 初期設定と復元、前面・抽出・複数タスク・自動終了オフの条件、終了確認と保存待ち、OS時間切れと通知の中止 |
 
 テストは実Bot Tokenを使用せず、Discordサーバーを書き換えません。実際のToken保存・共有メニュー・Discord権限は、各環境で別途確認する必要があります。
+
+Windowsのネイティブ外観テストはビルド後に `oco_appearance_test` を実行します。補助ショートカットのテストはKnown Folderの解決先を一時領域へ差し替え、実ユーザーのリンクやピン留めを使いません。実表示の受け入れには、別途 [Windowsアイコンの仕様と実表示検証](../../Docs/OpenCampusOrganizer/Windowsアイコンの仕様と実表示検証.md) に沿って、候補版と起動中EXEの照合、既存タスクバー・スタートの連続切替を確認します。
 
 Windowsインストーラーの検証は、OCOをインストールしていないWindowsユーザーで、リポジトリのルートから実行します。アプリは自動起動しません。ログと検証用ファイルは `artifacts/installer-test-*` に残します。VC++ランタイムが不足している環境では、インストーラーがその導入も行います。
 

@@ -10,8 +10,8 @@
 #include "app_identity.h"
 #include "resource.h"
 
-// ショートカットの変更通知を配達した後で呼ぶ。
-// IDは固定する。表示済み画像の更新はshell_icon側のSHUpdateImageが担当する。
+// ショートカットを保存した後、WM_SETICONとShell通知より先に呼ぶ。
+// IDは固定し、表示済み画像の再取得は全参照を揃えた後の通知で要求する。
 inline bool SetTaskbarAppearanceProperties(IPropertyStore* properties,
                                           const std::wstring& executable,
                                           const std::wstring& icon_path) {
